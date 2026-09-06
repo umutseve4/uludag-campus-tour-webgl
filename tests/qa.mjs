@@ -148,68 +148,127 @@ for (let s = 1; s <= 25; s++) { const r = simulate(s * 7919); if (r.inside) insi
 ok(insideCount === 0, `25 randomized 100s walks never end inside a building (${insideCount} violations)`);
 ok(worstStep < 0.9, `observed max per-frame step ${worstStep.toFixed(3)} m < ${MARGIN.toFixed(1)} m collision margin (theoretical bound ${(RUN * 0.05).toFixed(3)} m at the dt clamp)`);
 
-// Kasıtlı duvara koşu: değişken dt ile, dört yönden, HEDEFLENEN engelin duvarına.
+// Kasıtlı duvara koşu — konfigürasyon uzayında, kaçamaksız.
 //
-// Üç tuzak var ve üçü de testi sessizce anlamsızlaştırır:
-//   1) Başlangıç noktası komşu bir yapının içine düşerse ihlal 0. adımda oluşur
-//      ve harness kendi kusurunu ürünün kusuru sanır.
-//   2) Koşu, hedefe varmadan BAŞKA bir engele çarparsa "içeri giremedi" sonucu
-//      bedavaya gelir; hedeflenen duvar hiç sınanmamış olur.
-//   3) Bazı yüzeylere hiç koşulamaz: engel kutuları üst üste bindiği için o yönde
-//      yürünebilir koridor yoktur. Bunları "geçti" saymak da "kaldı" saymak da
-//      yalandır; ATLANDI diye ayrı sayılır ve komşu engelle perdelendiği kanıtlanır.
+// Önceki üç sürüm de sessizce anlamsızlaşmıştı:
+//   1) Başlangıç noktası komşu yapının içine düştü → ihlal 0. adımda, harness kendi
+//      kusurunu ürünün kusuru sandı.
+//   2) Koşu hedefe varmadan BAŞKA engele çarpınca "geçemedi" bedavaya geldi.
+//   3) "Koridor yok, atla" kaçamağı: yüzeyin önünde tek bir noktada başka engel
+//      görmek, o duvara hiçbir yoldan varılamadığını KANITLAMAZ.
+// Bu sürüm yüzeyi noktasal değil, bütün olarak ele alır: her duvarın dış ε katmanı
+// baştan sona örneklenir, açık kalan her nokta START'tan flood-fill ile bağlantı
+// sınavına sokulur ve bağlantılı tek bir nokta varsa o yüzey MUTLAKA koşulur.
+// Her yüz tam olarak üç sınıftan birine düşer; sınıflandırılamayan yüz kalamaz.
 {
-  let breaches = 0, worstVar = 0, intended = 0, attempts = 0, skipped = 0, ran = 0;
-  const misses = [], skippedList = [], unshielded = [];
+  const G = 0.5, GX0 = -150, GX1 = 150, GZ0 = CAMPUS_Z[0], GZ1 = CAMPUS_Z[1];
+  const NX = Math.round((GX1 - GX0) / G) + 1, NZ = Math.round((GZ1 - GZ0) / G) + 1;
+  const idx = (i, j) => j * NX + i;
+  const seen = new Uint8Array(NX * NZ);
+  let reachCells = 0;
+  {
+    const si = Math.round((0 - GX0) / G), sj = Math.round((118 - GZ0) / G);
+    const stack = [idx(si, sj)]; seen[stack[0]] = 1;
+    while (stack.length) {
+      const c = stack.pop(), j = (c / NX) | 0, i = c - j * NX;
+      reachCells++;
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const ni = i + di, nj = j + dj;
+        if (ni < 0 || nj < 0 || ni >= NX || nj >= NZ) continue;
+        const n = idx(ni, nj);
+        if (seen[n] || blocked(GX0 + ni * G, GZ0 + nj * G)) continue;
+        seen[n] = 1; stack.push(n);
+      }
+    }
+  }
+  ok(reachCells > 50000 && !blocked(0, 118),
+     `walkable area reachable from spawn: ${reachCells} of ${NX * NZ} grid cells (0.5 m)`);
+  const reachableAt = (x, z) => {
+    const i = Math.round((x - GX0) / G), j = Math.round((z - GZ0) / G);
+    for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+      const ni = i + di, nj = j + dj;
+      if (ni >= 0 && nj >= 0 && ni < NX && nj < NZ && seen[idx(ni, nj)]) return true;
+    }
+    return false;
+  };
+
+  const EPS = 0.05;
   let rng = 424242;
   const rand = () => (rng = (rng * 1103515245 + 12345) % 2147483648) / 2147483648;
+
+  // Oyunun hareket entegratörünün birebir kopyası; yön birim vektör olarak verilir.
+  const drive = (sx, sz, ux, uz, fast) => {
+    let x = sx, z = sz, vx = fast * ux * RUN, vz = fast * uz * RUN, hit = -1, worst = 0, breach = false;
+    for (let step = 0; step < 4000; step++) {
+      const dt = Math.min(0.05, 1 / 240 + rand() * 0.06);   // 4 ms … 50 ms, clamp dahil
+      vx += ux * RUN * ACCEL * dt; vz += uz * RUN * ACCEL * dt;
+      const damp = Math.max(0, 1 - FRICTION * dt); vx *= damp; vz *= damp;
+      const vlen = Math.hypot(vx, vz);
+      if (vlen > RUN) { vx = (vx / vlen) * RUN; vz = (vz / vlen) * RUN; }
+      worst = Math.max(worst, Math.hypot(vx, vz) * dt);
+      const nx = x + vx * dt, nz = z + vz * dt;
+      if (!blocked(nx, z)) x = nx; else { if (hit < 0) hit = blockerAt(nx, z); vx = 0; }
+      if (!blocked(x, nz)) z = nz; else { if (hit < 0) hit = blockerAt(x, nz); vz = 0; }
+      if (blocked(x, z)) { breach = true; break; }
+      if (hit >= 0 && Math.hypot(vx, vz) < 0.01) break;
+    }
+    return { hit, worst, breach };
+  };
+
+  let tested = 0, covered = 0, disconnected = 0, breaches = 0, diagRuns = 0, diagBreaches = 0, worstVar = 0;
+  const misattributed = [], classes = [];
   for (let i = 0; i < BLOCKERS.length; i++) {
     const b = BLOCKERS[i];
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      attempts++;
-      // Hedef yüzeyin dışına çık, sonra boş kaldığı sürece geriye doğru uzaklaş.
-      const face = (Math.abs(dx) ? b.w / 2 : b.d / 2) + MARGIN;
-      let d = face + 0.5;
-      while (d < face + 45 && !blocked(b.x + dx * (d + 0.5), b.z + dz * (d + 0.5))) d += 0.5;
-      const runway = d - face;
-      if (runway < 5) {
-        // Koridor yok: bu yüzeyin önünü BAŞKA bir engel kapatıyor olmalı.
-        let shield = -1;
-        for (const probe of [0.5, 0.75, 1.0, 1.5]) {
-          const s = blockerAt(b.x + dx * (d + probe), b.z + dz * (d + probe));
-          if (s >= 0 && s !== i) { shield = s; break; }
+      const halfN = (dx ? b.w / 2 : b.d / 2) + MARGIN;
+      const halfL = (dx ? b.d / 2 : b.w / 2) - 0.2;   // gerçek duvar açıklığı; pay taşması komşu yüze aittir
+      let open = 0, best = null;
+      for (let s = 0; s <= 40; s++) {
+        const t = -halfL + (2 * halfL * s) / 40;
+        const px = b.x + (dx ? dx * (halfN + EPS) : t);
+        const pz = b.z + (dz ? dz * (halfN + EPS) : t);
+        if (blocked(px, pz)) continue;
+        open++;
+        if (!reachableAt(px, pz)) continue;
+        let d = halfN + EPS;
+        while (d < halfN + 45) {
+          const qx = b.x + (dx ? dx * (d + 0.5) : t), qz = b.z + (dz ? dz * (d + 0.5) : t);
+          if (blocked(qx, qz) || !reachableAt(qx, qz)) break;
+          d += 0.5;
         }
-        if (shield < 0) unshielded.push(`${i}${dx}${dz}: no shield found`);
-        skipped++; skippedList.push(`${i}${dx}${dz}: runway ${runway.toFixed(1)} m`);
-        continue;
+        const runway = d - halfN;
+        if (!best || runway > best.runway) best = { t, runway };
       }
-      ran++;
-      let x = b.x + dx * d, z = b.z + dz * d, vx = 0, vz = 0;
-      let hit = -1;
-      for (let step = 0; step < 2000; step++) {
-        const dt = Math.min(0.05, 1 / 240 + rand() * 0.06);   // 4 ms … 50 ms, clamp dahil
-        vx += -dx * RUN * ACCEL * dt; vz += -dz * RUN * ACCEL * dt;
-        const damp = Math.max(0, 1 - FRICTION * dt); vx *= damp; vz *= damp;
-        const vlen = Math.hypot(vx, vz);
-        if (vlen > RUN) { vx = (vx / vlen) * RUN; vz = (vz / vlen) * RUN; }
-        worstVar = Math.max(worstVar, Math.hypot(vx, vz) * dt);
-        const nx = x + vx * dt, nz = z + vz * dt;
-        if (!blocked(nx, z)) x = nx; else { if (hit < 0) hit = blockerAt(nx, z); vx = 0; }
-        if (!blocked(x, nz)) z = nz; else { if (hit < 0) hit = blockerAt(x, nz); vz = 0; }
-        if (blocked(x, z)) { breaches++; break; }
-        if (hit >= 0 && Math.hypot(vx, vz) < 0.01) break;   // duvara yaslandı, iş bitti
+      if (open === 0) { covered++; classes.push(`${i}${dx}${dz}:covered`); continue; }
+      if (!best) { disconnected++; classes.push(`${i}${dx}${dz}:disconnected(${open})`); continue; }
+      tested++;
+      const { t, runway } = best;
+      const slam = runway < 5 ? 1 : 0;   // koridor kısaysa duvara tam hızla yapış
+      const sx = b.x + (dx ? dx * (halfN + runway) : t);
+      const sz = b.z + (dz ? dz * (halfN + runway) : t);
+      const r = drive(sx, sz, -dx, -dz, slam);
+      worstVar = Math.max(worstVar, r.worst);
+      if (r.breach) breaches++;
+      if (r.hit !== i) misattributed.push(`${i}${dx}${dz}: hit ${r.hit} (runway ${runway.toFixed(1)}${slam ? ', slam' : ''})`);
+      classes.push(`${i}${dx}${dz}:tested r=${runway.toFixed(1)}${slam ? '/slam' : ''}`);
+      // Çapraz yaklaşımlar: köşeden gelen oyuncu da duvarı delememeli.
+      for (const ang of [0.5, -0.5]) {
+        const u = dx ? [-dx * Math.cos(ang), Math.sin(ang)] : [Math.sin(ang), -dz * Math.cos(ang)];
+        const rd = drive(sx, sz, u[0], u[1], slam);
+        diagRuns++;
+        worstVar = Math.max(worstVar, rd.worst);
+        if (rd.breach) diagBreaches++;
       }
-      if (hit === i) intended++; else misses.push(`${i}${dx}${dz}: hit ${hit}`);
     }
   }
-  ok(intended === ran,
-     `every reachable wall sprint reached the wall it aimed at (${intended}/${ran} of ${attempts} faces${misses.length ? ' — ' + misses.join(', ') : ''})`);
-  ok(unshielded.length === 0,
-     `each of the ${skipped} unreachable faces is shielded by a neighbouring blocker (${unshielded.join(', ') || 'all shielded'})`);
-  ok(skipped + ran === attempts && ran >= 16,
-     `face accounting closes: ${ran} sprinted + ${skipped} shielded = ${attempts} (${skippedList.join(', ')})`);
+  ok(tested + covered + disconnected === BLOCKERS.length * 4,
+     `every wall face classified exactly once: ${tested} sprinted + ${covered} geometrically covered + ${disconnected} disconnected from spawn = ${BLOCKERS.length * 4} — ${classes.join(', ')}`);
+  ok(misattributed.length === 0,
+     `each sprinted face was stopped by the wall it aimed at (${tested - misattributed.length}/${tested}${misattributed.length ? ' — ' + misattributed.join(', ') : ''})`);
   ok(breaches === 0,
-     `${ran} variable-timestep sprints straight at the walls never breach one (${breaches} breaches, worst step ${worstVar.toFixed(3)} m)`);
+     `${tested} head-on variable-timestep sprints never breach a wall (${breaches} breaches, worst step ${worstVar.toFixed(3)} m)`);
+  ok(diagBreaches === 0,
+     `${diagRuns} diagonal (±0.5 rad) approaches never breach a wall either (${diagBreaches} breaches)`);
 }
 
 /* ---------- 5. Ring otobüsü döngüsü ---------- */
