@@ -1,12 +1,42 @@
-# Bursa Uludağ Üniversitesi Kampüs Turu
+<h1 align="center">Bursa Uludağ Üniversitesi · Kampüs Turu</h1>
 
-Görükle Yerleşkesi'nde geçen, **tek dosyalık** bir 3B yürüyüş deneyimi. Tarayıcıda `index.html`'i
-açmak yeterli — build adımı, paket kurulumu, indirilecek model/doku dosyası yok. (Tek dosya, tek
-*yerel* dosya demek: three.js çalışma anında CDN'den iner, yani çevrimdışı açılmaz.)
+<p align="center">
+  Görükle Yerleşkesi'nde <b>yürüyerek</b> gezdiğiniz, tek dosyalık bir 3B deneyim.<br>
+  Kampüs kapısından başlarsınız; yol, fakülte, kütüphane ve ufuktaki Uludağ<br>
+  daha ilk karede aynı kompozisyondadır.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/yerel%20ba%C4%9F%C4%B1ml%C4%B1l%C4%B1k-0-FF4D4F?style=flat-square" alt="Sıfır yerel bağımlılık">
+  <img src="https://img.shields.io/badge/a%C4%9Fa%C3%A7-~700%20%C2%B7%204%20draw%20call-FF4D4F?style=flat-square" alt="700 ağaç, 4 draw call">
+  <img src="https://img.shields.io/badge/duvar%20ko%C5%9Fusu-30%20dik%20%2B%2060%20%C3%A7apraz-FF4D4F?style=flat-square" alt="90 duvar koşusu">
+</p>
 
 **Build by Opus 5.**
 
 ---
+
+## Nasıl gezilir
+
+| Girdi | Etki |
+|---|---|
+| `W` `A` `S` `D` veya `↑` `↓` `←` `→` | Yürü (ivmeli, sürtünmeli hareket) |
+| Fare / parmak **sürükleme** | Etrafına bak (yaw + pitch, pitch −1,05…0,95 rad kilitli) |
+| `Shift` | Koş (7,2 m/s → 14 m/s tavan hız) |
+| `R` | Başlangıç noktasına dön |
+| `O` veya **Yörünge kamerası** düğmesi | Kampüsü dışarıdan izleyen OrbitControls moduna geç |
+
+Sağ üstteki panel pusula yönünü ve bulunduğunuz bölgeyi (Kampüs Kapısı → Ring Durağı → Fakülte
+Binası → Merkez Kütüphane → Çam Korusu → Uludağ Manzarası) gösterir.
+
+## Çalıştırma
+
+```bash
+python -m http.server 8000   # sonra http://localhost:8000
+```
+
+`index.html`'i doğrudan açmak da çalışır. (Tek dosya, tek *yerel* dosya demek:
+three.js çalışma anında CDN'den iner, yani çevrimdışı açılmaz.)
 
 ## Ne var sahnede
 
@@ -26,22 +56,6 @@ Aydınlatma: yönlü güneş (gölge haritası **kameranın etrafına taşınır
 gölge çözünürlüğü israf edilmez) + hemisphere + hafif ambient, ACES filmic tone mapping,
 mesafe sisi ve gradyan gökyüzü shader'ı.
 
-Deneyim, kampüs kapısında **yola bakarak** başlar: yol, fakülte, kütüphane ve ufuktaki Uludağ
-ilk karede aynı kompozisyondadır.
-
-## Kontroller
-
-| Girdi | Etki |
-|---|---|
-| `W` `A` `S` `D` veya `↑` `↓` `←` `→` | Yürü (ivmeli, sürtünmeli hareket) |
-| Fare / parmak **sürükleme** | Etrafına bak (yaw + pitch, pitch −1,05…0,95 rad kilitli) |
-| `Shift` | Koş (7,2 m/s → 14 m/s tavan hız) |
-| `R` | Başlangıç noktasına dön |
-| `O` veya **Yörünge kamerası** düğmesi | Kampüsü dışarıdan izleyen OrbitControls moduna geç |
-
-Sağ üstteki panel pusula yönünü ve bulunduğunuz bölgeyi (Kampüs Kapısı → Ring Durağı → Fakülte
-Binası → Merkez Kütüphane → Çam Korusu → Uludağ Manzarası) gösterir.
-
 ## Teknik
 
 - Three.js **0.169.0**, `importmap` üzerinden CDN'den; `OrbitControls` aynı sürümün `examples/jsm` yolundan.
@@ -58,9 +72,17 @@ Binası → Merkez Kütüphane → Çam Korusu → Uludağ Manzarası) gösterir
 
 İki bağımsız katman var ve ikisi de her push'ta `.github/workflows/qa.yml` ile çalışır.
 
+```bash
+node tests/qa.mjs        # → QA RESULT: PASS (0 failures)
+node tests/browser.mjs   # → BROWSER RESULT: PASS (0 failures)  (Playwright gerektirir)
+```
+
 **1) Statik harness** — `tests/qa.mjs`, bağımlılıksız: **57 kontrolün tamamı geçer.**
 `index.html`'in **gerçek kaynak metninden** sabitleri, `BLOCKERS` dizisini ve `blocked()`
-fonksiyonunu ayıklayıp Node'da koşturur:
+fonksiyonunu ayıklayıp Node'da koşturur.
+
+<details>
+<summary>57 kontrolün dökümü</summary>
 
 - modül script'i geçerli ES modülü olarak ayrıştırılıyor;
 - tek dosya sözleşmesi (yalnızca 2 `<script>` etiketi, harici `src` yok, Three.js sürümü sabitlenmiş);
@@ -107,6 +129,8 @@ fonksiyonunu ayıklayıp Node'da koşturur:
 - HUD yer adları 8 farklı z konumunda doğru çözümleniyor;
 - README'nin **sayısal iddiaları** (dosya boyutu, kontrol sayısı) dosyanın kendisiyle karşılaştırılıyor.
 
+</details>
+
 **2) Gerçek tarayıcı kabulü — `tests/browser.mjs`, Chromium + WebGL.**
 CI, Playwright'ı depo ağacının dışına kurar, sayfayı yerel sunucudan açar ve gerçek kullanıcı
 hareketlerini yapar: yükleme (0 konsol hatası, 0 başarısız istek), canlı WebGL bağlamı, loader'ın
@@ -117,12 +141,7 @@ etkileşimin sürmesi ve yeniden boyutlandırma. CI koşucusunda GPU yoktur (Swi
 testler kare hızına değil **ilerlemeye** bakar. Kanıt olarak `artifacts/campus.png` ekran görüntüsü
 CI çıktısına yüklenir.
 
-```bash
-node tests/qa.mjs        # → QA RESULT: PASS (0 failures)
-node tests/browser.mjs   # → BROWSER RESULT: PASS (0 failures)  (Playwright gerektirir)
-```
-
-### Kanıtın sınırları
+## Kanıtın sınırları
 
 Abartmamak için, testlerin **kapsamadığı** şeyler:
 
@@ -141,7 +160,7 @@ Abartmamak için, testlerin **kapsamadığı** şeyler:
 - **Görsel kalite:** ekran görüntüsü kanıt olarak yüklenir, ancak bir referans görüntüyle
   karşılaştırılmaz; kompozisyon bozulması insan gözü ister.
 
-## Lisans
+---
 
 MIT — `LICENSE`. Kod tümüyle prosedüreldir; üçüncü taraf model, doku veya ses dosyası içermez.
 Sahne, Görükle Yerleşkesi'nden **esinlenen** stilize bir yorumdur; ölçekli bir mimari reprodüksiyon değildir.
