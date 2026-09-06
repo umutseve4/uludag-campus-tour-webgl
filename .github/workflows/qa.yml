@@ -30,7 +30,17 @@ jobs:
           node-version: '22.x'
 
       - name: Single-file invariants, README claim audit, collision coverage, walk simulation
-        run: node tests/qa.mjs
+        run: |
+          set +e
+          node tests/qa.mjs 2>&1 | tee qa.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            grep -E 'FAIL|Error|error:' qa.log | head -40 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+          fi
+          rm -f qa.log
+          exit "$code"
 
       - name: No build artefacts or dependencies committed
         run: |
@@ -84,7 +94,17 @@ jobs:
           curl -sf -o /dev/null http://127.0.0.1:8080/index.html
 
       - name: Browser smoke test (WebGL, input, composition)
-        run: node tests/browser.mjs http://127.0.0.1:8080
+        run: |
+          set +e
+          node tests/browser.mjs http://127.0.0.1:8080 2>&1 | tee browser.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            grep -E 'FAIL|Error|error:|Cannot find' browser.log | head -40 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+          fi
+          rm -f browser.log
+          exit "$code"
 
       - name: Upload rendered screenshot
         if: always()
