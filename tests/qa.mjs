@@ -150,16 +150,17 @@ ok(worstStep < 0.9, `observed max per-frame step ${worstStep.toFixed(3)} m < ${M
 
 // Kasıtlı duvara koşu: değişken dt ile, dört yönden, HEDEFLENEN engelin duvarına.
 //
-// İki tuzak var ve ikisi de testi sessizce anlamsızlaştırır:
+// Üç tuzak var ve üçü de testi sessizce anlamsızlaştırır:
 //   1) Başlangıç noktası komşu bir yapının içine düşerse ihlal 0. adımda oluşur
-//      ve harness kendi kusurunu ürünün kusuru sanar.
+//      ve harness kendi kusurunu ürünün kusuru sanır.
 //   2) Koşu, hedefe varmadan BAŞKA bir engele çarparsa "içeri giremedi" sonucu
 //      bedavaya gelir; hedeflenen duvar hiç sınanmamış olur.
-// Bu yüzden başlangıç, hedef yüzeyin önündeki *doğrulanmış boş koridorun* en uç
-// noktasına konur ve her çarpışma hangi engele ait olduğuyla birlikte kaydedilir.
+//   3) Bazı yüzeylere hiç koşulamaz: engel kutuları üst üste bindiği için o yönde
+//      yürünebilir koridor yoktur. Bunları "geçti" saymak da "kaldı" saymak da
+//      yalandır; ATLANDI diye ayrı sayılır ve komşu engelle perdelendiği kanıtlanır.
 {
-  let breaches = 0, worstVar = 0, intended = 0, attempts = 0;
-  const misses = [];
+  let breaches = 0, worstVar = 0, intended = 0, attempts = 0, skipped = 0, ran = 0;
+  const misses = [], skippedList = [], unshielded = [];
   let rng = 424242;
   const rand = () => (rng = (rng * 1103515245 + 12345) % 2147483648) / 2147483648;
   for (let i = 0; i < BLOCKERS.length; i++) {
@@ -171,7 +172,18 @@ ok(worstStep < 0.9, `observed max per-frame step ${worstStep.toFixed(3)} m < ${M
       let d = face + 0.5;
       while (d < face + 45 && !blocked(b.x + dx * (d + 0.5), b.z + dz * (d + 0.5))) d += 0.5;
       const runway = d - face;
-      if (runway < 5) { misses.push(`${i}${dx}${dz}: runway ${runway.toFixed(1)} m`); continue; }
+      if (runway < 5) {
+        // Koridor yok: bu yüzeyin önünü BAŞKA bir engel kapatıyor olmalı.
+        let shield = -1;
+        for (const probe of [0.5, 0.75, 1.0, 1.5]) {
+          const s = blockerAt(b.x + dx * (d + probe), b.z + dz * (d + probe));
+          if (s >= 0 && s !== i) { shield = s; break; }
+        }
+        if (shield < 0) unshielded.push(`${i}${dx}${dz}: no shield found`);
+        skipped++; skippedList.push(`${i}${dx}${dz}: runway ${runway.toFixed(1)} m`);
+        continue;
+      }
+      ran++;
       let x = b.x + dx * d, z = b.z + dz * d, vx = 0, vz = 0;
       let hit = -1;
       for (let step = 0; step < 2000; step++) {
@@ -190,10 +202,14 @@ ok(worstStep < 0.9, `observed max per-frame step ${worstStep.toFixed(3)} m < ${M
       if (hit === i) intended++; else misses.push(`${i}${dx}${dz}: hit ${hit}`);
     }
   }
-  ok(intended === attempts,
-     `every wall sprint reached the wall it aimed at (${intended}/${attempts} intended contacts${misses.length ? ' — ' + misses.join(', ') : ''})`);
+  ok(intended === ran,
+     `every reachable wall sprint reached the wall it aimed at (${intended}/${ran} of ${attempts} faces${misses.length ? ' — ' + misses.join(', ') : ''})`);
+  ok(unshielded.length === 0,
+     `each of the ${skipped} unreachable faces is shielded by a neighbouring blocker (${unshielded.join(', ') || 'all shielded'})`);
+  ok(skipped + ran === attempts && ran >= 16,
+     `face accounting closes: ${ran} sprinted + ${skipped} shielded = ${attempts} (${skippedList.join(', ')})`);
   ok(breaches === 0,
-     `${attempts} variable-timestep sprints straight at the walls never breach one (${breaches} breaches, worst step ${worstVar.toFixed(3)} m)`);
+     `${ran} variable-timestep sprints straight at the walls never breach one (${breaches} breaches, worst step ${worstVar.toFixed(3)} m)`);
 }
 
 /* ---------- 5. Ring otobüsü döngüsü ---------- */
