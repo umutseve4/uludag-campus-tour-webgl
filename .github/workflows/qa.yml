@@ -71,6 +71,7 @@ jobs:
           npm init -y >/dev/null
           npm i --no-audit --no-fund playwright@1.49.1
           npx playwright install --with-deps chromium
+          echo "PW_ROOT=$RUNNER_TEMP/pw" >> "$GITHUB_ENV"
           echo "NODE_PATH=$RUNNER_TEMP/pw/node_modules" >> "$GITHUB_ENV"
 
       - name: Serve the single file
