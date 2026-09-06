@@ -25,13 +25,16 @@ Aydınlatma: yönlü güneş (gölge haritası **kameranın etrafına taşınır
 gölge çözünürlüğü israf edilmez) + hemisphere + hafif ambient, ACES filmic tone mapping,
 mesafe sisi ve gradyan gökyüzü shader'ı.
 
+Deneyim, kampüs kapısında **yola bakarak** başlar: yol, fakülte, kütüphane ve ufuktaki Uludağ
+ilk karede aynı kompozisyondadır.
+
 ## Kontroller
 
 | Girdi | Etki |
 |---|---|
 | `W` `A` `S` `D` veya `↑` `↓` `←` `→` | Yürü (ivmeli, sürtünmeli hareket) |
-| Fare / parmak **sürükleme** | Etrafına bak (yaw + pitch, pitch −1.05…0.95 rad kilitli) |
-| `Shift` | Koş (7.2 m/s → 14 m/s) |
+| Fare / parmak **sürükleme** | Etrafına bak (yaw + pitch, pitch −1,05…0,95 rad kilitli) |
+| `Shift` | Koş (7,2 m/s → 14 m/s tavan hız) |
 | `R` | Başlangıç noktasına dön |
 | `O` veya **Yörünge kamerası** düğmesi | Kampüsü dışarıdan izleyen OrbitControls moduna geç |
 
@@ -41,31 +44,50 @@ Binası → Merkez Kütüphane → Çam Korusu → Uludağ Manzarası) gösterir
 ## Teknik
 
 - Three.js **0.169.0**, `importmap` üzerinden CDN'den; `OrbitControls` aynı sürümün `examples/jsm` yolundan.
-- Tek dosya `index.html` (40.815 bayt), sıfır bağımlılık, sıfır build adımı, `node_modules` yok.
+- Tek dosya `index.html` (41.347 bayt), sıfır bağımlılık, sıfır build adımı, `node_modules` yok.
 - Performans: instancing (ağaçlar, çalılar, çiçekler, şerit çizgileri), paylaşılan materyal havuzu,
   `devicePixelRatio` 2 ile sınırlı, sekme arkaplana alındığında render durur.
 - Erişilebilirlik/dayanıklılık: `prefers-reduced-motion` açıksa sahne hareketsiz yörünge moduna düşer,
   canvas odaklanabilir ve `aria-label`'lıdır, `webglcontextlost` yakalanır, WebGL yoksa açıklayıcı ekran gösterilir.
+- Çarpışma **yalnızca** yapılar içindir: fakülte blokları, kütüphane gövdesi/atriyumu/havuzu ve kapı
+  ayakları katıdır. Ağaçlar, banklar, lambalar ve ring otobüsü bilinçli olarak geçirgendir; yürüyüş
+  koridoru `x ∈ [−150, 150]`, `z ∈ [−260, 150]` ile sınırlanır.
 
 ## Doğrulama
 
-`tests/qa.mjs`, `index.html`'in **gerçek kaynak metninden** sabitleri ve `blocked()` fonksiyonunu
-ayıklayıp Node'da koşturur; hiçbir bağımlılık gerektirmez. Her push'ta `.github/workflows/qa.yml`
-ile çalışır ve **39 kontrolün tamamı geçer**:
+İki bağımsız katman var ve ikisi de her push'ta `.github/workflows/qa.yml` ile çalışır.
+
+**1) Statik harness — `tests/qa.mjs`, bağımlılıksız, 49 kontrolün tamamı geçer.**
+`index.html`'in **gerçek kaynak metninden** sabitleri, `BLOCKERS` dizisini ve `blocked()`
+fonksiyonunu ayıklayıp Node'da koşturur:
 
 - modül script'i geçerli ES modülü olarak ayrıştırılıyor;
 - tek dosya sözleşmesi (yalnızca 2 `<script>` etiketi, harici `src` yok, Three.js sürümü sabitlenmiş);
-- üstteki başlık ve alttaki yönerge katmanı metinleri yerinde;
+- görünür `Build by Opus 5.` künyesi, tam MIT lisans metni ve başlık/yönerge katmanı yerinde;
+- yönerge katmanı, koda bağlanmış **her tuşu** listeliyor (11 tuş etiketi);
+- açılış kompozisyonu korunuyor: `START.yaw = 0`, yani ziyaretçi kampüse bakarak doğuyor;
+- test sondası `window.__campus` donmuş ve yalnız getter — testler sahneyi süremez;
 - 8 klavye kodunun tamamı ve sürükle-bak pointer olayları bağlı;
 - **çarpışma kapsaması:** 8 yapı ayak izinin her biri 625 örnek noktada tam kapalı (0 açık nokta);
 - **yol koridoru** 2000 örnekte hiç kapalı değil — otobüs ve yürüyüş hattı hiç tıkanmıyor;
-- **25 ayrı rastgele 100 saniyelik yürüyüş** hiçbir binanın içinde bitmiyor; kare başına en büyük
-  adım **0,188 m** ve 0,9 m'lik çarpışma payının altında, yani duvardan geçiş (tunnelling) yapısal olarak mümkün değil;
+- **25 ayrı rastgele 100 saniyelik yürüyüş** hiçbir binanın içinde bitmiyor; gözlenen en büyük kare
+  adımı **0,188 m**, `dt` kelepçesindeki teorik tavan ise **0,700 m** — ikisi de 0,9 m'lik çarpışma
+  payının altında;
+- **32 değişken adımlı (4–50 ms) koşu** doğrudan duvarlara sürülüyor, hiçbiri içeri geçemiyor;
 - ring otobüsü [−230,0 · +116,0] m aralığında kalıyor ve iki yönde de gerçekten gidip geliyor;
-- HUD yer adları 8 farklı z konumunda doğru çözümleniyor.
+- HUD yer adları 8 farklı z konumunda doğru çözümleniyor;
+- README'nin **sayısal iddiaları** (dosya boyutu, kontrol sayısı) dosyanın kendisiyle karşılaştırılıyor.
+
+**2) Gerçek tarayıcı kabulü — `tests/browser.mjs`, Chromium + WebGL.**
+CI, Playwright'ı depo ağacının dışına kurar, sayfayı yerel sunucudan açar ve gerçek kullanıcı
+hareketlerini yapar: yükleme (0 konsol hatası, 0 başarısız istek), canlı WebGL bağlamı, loader'ın
+kalkması, fps ölçümü, `W` ile yürüyüp bölge etiketinin değişmesi, sürükleyip pusulanın dönmesi,
+`R` ile başa dönüş, `O`/düğme ile yörünge modu, sondanın yazılamazlığı ve yeniden boyutlandırma.
+Kanıt olarak `artifacts/campus.png` ekran görüntüsü CI çıktısına yüklenir.
 
 ```bash
-node tests/qa.mjs   # → QA RESULT: PASS (0 failures)
+node tests/qa.mjs        # → QA RESULT: PASS (0 failures)
+node tests/browser.mjs   # → BROWSER RESULT: PASS (0 failures)  (Playwright gerektirir)
 ```
 
 ## Lisans
