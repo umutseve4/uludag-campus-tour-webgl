@@ -58,7 +58,7 @@ Binası → Merkez Kütüphane → Çam Korusu → Uludağ Manzarası) gösterir
 
 İki bağımsız katman var ve ikisi de her push'ta `.github/workflows/qa.yml` ile çalışır.
 
-**1) Statik harness** — `tests/qa.mjs`, bağımlılıksız: **55 kontrolün tamamı geçer.**
+**1) Statik harness** — `tests/qa.mjs`, bağımlılıksız: **57 kontrolün tamamı geçer.**
 `index.html`'in **gerçek kaynak metninden** sabitleri, `BLOCKERS` dizisini ve `blocked()`
 fonksiyonunu ayıklayıp Node'da koşturur:
 
@@ -75,25 +75,34 @@ fonksiyonunu ayıklayıp Node'da koşturur:
   200.000 rastgele nokta ve 48 sınır noktasında iki fonksiyonun kararı birebir aynı çıkıyor.
   (Bu kontrol boşuna değil: ölçülen pay `0.9000000000000021`, kaynaktaki `0.9` literalinden kılpayı
   büyüktü ve sınırın tam üstündeki bir temas komşu binaya yazılıyordu.)
+- **bu yeniden bağlama yapısal olarak da doğrulanıyor:** `blocked()` metninde `BLOCKERS` dışında
+  serbest ad yok ve dönüştürülmüş metin, adı geri çevrildiğinde orijinaline **birebir eşit** —
+  yani test, ürünün mantığını yeniden türetmiyor, aynen yeniden bağlıyor;
 - **çarpışma kapsaması:** 8 yapı ayak izinin her biri 625 örnek noktada kapalı (0 açık nokta);
 - **yol koridoru** 2000 örnekte hiç kapalı değil — otobüs ve yürüyüş hattı hiç tıkanmıyor;
 - **25 ayrı rastgele 100 saniyelik yürüyüş** hiçbir binanın içinde bitmiyor; gözlenen en büyük kare
   adımı **0,188 m**, `dt` kelepçesindeki teorik tavan ise **0,700 m** — ikisi de 0,9 m'lik çarpışma
   payının altında;
-- **duvar testi konfigürasyon uzayında yapılır, kaçamak bırakmadan.** Başlangıç noktasından
-  0,5 m'lik ızgarada flood-fill ile gerçekten yürünebilir bileşen çıkarılır. 8 engel kutusunun
-  32 duvar yüzeyinin her birinin dış ε katmanı 41 noktada örneklenir; **açık ve başlangıca bağlı
-  tek bir nokta bulunan her yüz mutlaka koşulur** (koşu koridoru 5 m'den kısaysa duvara tam hızla
-  yapışarak). Her yüz tam olarak üç sınıftan birine düşer ve döküm **sabitlenmiştir**:
-  **30 koşulan + 2 geometrik olarak tümüyle kapalı + 0 başlangıçtan kopuk = 32**. Bu sayılardan
-  herhangi biri kayarsa — sınıflandırılamayan bir yüz kalırsa da — CI kırmızıya döner. Koşulan her
-  yüzde durduran engelin **hedeflenen engel** olduğu ayrıca doğrulanır, ve her yüz için iki
-  **çapraz** (±0,5 rad) yaklaşım daha koşulur: 30 dik + 60 çapraz koşunun hiçbiri duvarı delip
-  geçmiyor. (Bu tuzakların hepsi gerçekten yaşandı: önce başlangıç noktası komşu binanın içine
-  düştü, sonra "başka duvara çarpıp bedava geçen koşu" riski çıktı, sonra CI 13 yüzeyin normal
-  doğrultuda hiç koridoru olmadığını gösterdi, sonra bağımsız denetim "koridor yok, atla"
-  kaçamağının kanıt değil varsayım olduğunu söyledi, en sonunda CI temas atfının kılpayı geniş
-  bir payla yapıldığını ortaya çıkardı. Beşi de kalıcı kontrole dönüştürüldü.)
+- **duvar testi konfigürasyon uzayında ve ÖRNEKLEMESİZ yapılır.** Serbest uzay, engellerin kendi
+  kenarlarından üretilen **kesin hücre ayrıştırmasıyla** (17×15 hücre, tamamı ya bütünüyle dolu ya
+  bütünüyle boş) kurulur; bu ayrıştırma ızgara çözünürlüğünden bağımsızdır. Başlangıç noktasının
+  bileşeni serbest alanın **tamamını** (117.557 m²) kapsar, üstelik 4- ve 8-komşuluk aynı hücre
+  kümesini verir — yani hiçbir sınıflandırma köşeden geçen kıl payı bir bağlantıya dayanmaz.
+  8 engel kutusunun 32 duvar yüzeyi için, diğer gövdelerin **kapalı aralıklarının birleşimi**
+  analitik olarak çıkarılır; örtülmeyen her açık aralık serbest ve bağlantılı bir doğru parçası
+  olduğundan tek temsilci noktası aralığın **tamamının** bileşenini belirler. Döküm
+  **sabitlenmiştir**: **30 koşulan + 2 tümüyle örtülü + 0 başlangıçtan kopuk = 32**. Koşulan her
+  yüzde üç şey ayrı ayrı kanıtlanır: reddedilen aday adımın **hedef gövdenin içine girdiği** (yani
+  yüzü gerçekten çaprazladığı — duvara varıp durmak sayılmaz), durduran engelin **hedeflenen engel**
+  olduğu, ve koşu bittiğinde konumun serbest kaldığı. Koşu koridoru da analitik: 30 yüzün 29'unda
+  45 m, birinde 1,20 m (orada duvara tam hızla yapışılır). Her yüz için iki **çapraz** (±0,5 rad)
+  yaklaşım daha koşulur: 30 dik + 60 çapraz koşunun hiçbiri duvarı delip geçmiyor.
+  (Bu tuzakların hepsi gerçekten yaşandı: önce başlangıç noktası komşu binanın içine düştü, sonra
+  "başka duvara çarpıp bedava geçen koşu" riski çıktı, sonra CI 13 yüzeyin normal doğrultuda hiç
+  koridoru olmadığını gösterdi, sonra bağımsız denetim "koridor yok, atla" kaçamağının kanıt değil
+  varsayım olduğunu söyledi, sonra CI temas atfının kılpayı geniş bir payla yapıldığını ortaya
+  çıkardı, en sonunda denetim 41 noktalık örneklemenin "kesin geometrik sınıflandırma" diye
+  sunulamayacağını söyledi. Altısı da kalıcı kontrole dönüştürüldü.)
 - ring otobüsü [−230,0 · +116,0] m aralığında kalıyor ve iki yönde de gerçekten gidip geliyor;
 - HUD yer adları 8 farklı z konumunda doğru çözümleniyor;
 - README'nin **sayısal iddiaları** (dosya boyutu, kontrol sayısı) dosyanın kendisiyle karşılaştırılıyor.
@@ -121,10 +130,12 @@ Abartmamak için, testlerin **kapsamadığı** şeyler:
   donanımdaki deneyimin ölçüsü değildir.
 - **Tarayıcı çeşitliliği:** yalnız Linux/Chromium + SwiftShader doğrulanır; Firefox, Safari/WebKit
   ve mobil GPU'lar kapsam dışıdır.
-- **Örnekleme ≠ ispat:** ayak izi ızgaraları, ε katmanı örneklemesi, 0,5 m'lik erişilebilirlik
-  ızgarası ve rastgele yürüyüşler güçlü ampirik kanıttır; sürekli uzayda tünelleme olmadığının
-  matematiksel ispatı değildir. Özellikle "kapalı" ve "kopuk" sınıfları ızgara/örnek çözünürlüğü
-  kadar kesindir.
+- **Neyin kesin, neyin ampirik olduğu:** yüz örtüsü ve serbest uzay bağlantılılığı artık
+  **kesindir** — analitik aralık birleşimi ve AABB kenarlarından türetilmiş hücre ayrıştırması,
+  çözünürlükten bağımsızdır. Buna karşılık ayak izi ızgaraları, rastgele yürüyüşler ve duvar
+  koşularının kendisi hâlâ **ampirik** kanıttır: sürekli uzayda hiçbir yörüngenin tünelleyemeyeceği
+  matematiksel olarak ispatlanmış değildir. Kare adımının çarpışma payından küçük kaldığı
+  ölçülüyor, ispatlanmıyor.
 - **Mimari doğruluk:** sahne Görükle Yerleşkesi'nden esinlenir; ölçülü/haritalı bir röprodüksiyon
   değildir ve hiçbir test binaları gerçek konumlarıyla karşılaştırmaz.
 - **Görsel kalite:** ekran görüntüsü kanıt olarak yüklenir, ancak bir referans görüntüyle
