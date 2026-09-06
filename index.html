@@ -426,7 +426,7 @@ function buildPines() {
   let rng = 20260906;
   const rand = () => { rng = (rng * 1664525 + 1013904223) % 4294967296; return rng / 4294967296; };
 
-  // Yol kenarı sıra ağaçlar + arka plan koruları
+  // Yol kenarı sıra ağaçları + arka plan koruları
   for (let z = 140; z > -420; z -= 7.5) {
     for (const s of [-1, 1]) {
       const near = s * (ROAD_HALF + 6.4 + rand() * 1.6);
@@ -758,8 +758,8 @@ scene.add(birds);
    8) KONTROLLER — birinci şahıs yürüyüş + sürükle bak + OrbitControls modu
    ========================================================================= */
 const keys = Object.create(null);
-let yaw = Math.PI, pitch = -0.03;     // başlangıçta kampüsün içine bakar
-const START = { x: 0, z: 118, yaw: Math.PI, pitch: -0.03 };
+let yaw = 0, pitch = -0.03;           // başlangıçta kampüs yoluna, −Z yönüne bakar
+const START = { x: 0, z: 118, yaw: 0, pitch: -0.03 };
 
 const orbit = new OrbitControls(camera, renderer.domElement);
 orbit.enableDamping = true;
@@ -886,6 +886,7 @@ function updateHUD() {
    ========================================================================= */
 const clock = new THREE.Clock();
 let running = true;
+let frames = 0;
 document.addEventListener('visibilitychange', () => {
   running = !document.hidden;
   if (running) { clock.getDelta(); requestAnimationFrame(tick); }
@@ -899,6 +900,7 @@ function tick() {
   requestAnimationFrame(tick);
   const dt = Math.min(clock.getDelta(), 0.05);
   const t  = clock.elapsedTime;
+  frames++;
 
   /* --- yürüyüş --- */
   if (!orbitMode) {
@@ -986,6 +988,19 @@ canvas.addEventListener('webglcontextlost', (e) => {
 canvas.addEventListener('webglcontextrestored', () => {
   document.getElementById('fallback').classList.remove('show');
   running = true; clock.getDelta(); requestAnimationFrame(tick);
+});
+
+/* --- Salt-okunur test sondası: otomatik tarayıcı testi iç duruma bakabilsin.
+       Hiçbir setter yok; sahne bu nesne üzerinden değiştirilemez. --- */
+window.__campus = Object.freeze({
+  get x()      { return walker.x; },
+  get z()      { return walker.z; },
+  get yaw()    { return yaw; },
+  get pitch()  { return pitch; },
+  get frames() { return frames; },
+  get orbit()  { return orbitMode; },
+  get place()  { return elPlace.textContent; },
+  get reduced(){ return REDUCED; }
 });
 
 // İlk kareyi derle, sonra loader'ı kaldır
