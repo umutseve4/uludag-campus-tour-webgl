@@ -10,6 +10,8 @@
  * saniyede birkaç kareye düşer. Bu yüzden test "kaç fps" diye sormaz — kare
  * sayacının ilerlediğini ve girdinin durumu gerçekten değiştirdiğini,
  * gerekiyorsa bekleyerek doğrular. Ölçülen fps rapora bilgi olarak yazılır.
+ * Aynı nedenle HUD gibi kısıtlanmış (throttled) yüzeyler okunmadan önce
+ * beklenir: yavaş koşucuda yarış koşulu, davranış kusuru gibi görünür.
  *
  * Tuvale tıklarken locator.click() KULLANILMAZ: Playwright'ın hit-target
  * denetimi, tuvalin üstündeki HUD/yönerge katmanlarına takılır ve 30 sn bekler.
@@ -181,10 +183,16 @@ try {
 
   /* ---------- 9. Sıfırlama ---------- */
   await page.keyboard.press('KeyR');
-  await until(page, () => Math.abs(window.__campus.z - 118) < 0.5, { timeout: 10_000 });
-  const reset = await page.evaluate(() => ({ x: window.__campus.x, z: window.__campus.z, yaw: window.__campus.yaw, place: window.__campus.place }));
+  await until(page, () => Math.abs(window.__campus.z - 118) < 0.5, { timeout: 15_000 });
+  // Konum her karede, HUD etiketi kısıtlanmış aralıklarla güncellenir: etiketi bekle.
+  const labelBack = await until(page, () => window.__campus.place === 'Kampüs Kapısı', { timeout: 20_000 });
+  const reset = await page.evaluate(() => ({
+    x: window.__campus.x, z: window.__campus.z, yaw: window.__campus.yaw,
+    place: window.__campus.place, dom: (document.getElementById('place') || {}).textContent
+  }));
   ok(Math.abs(reset.z - 118) < 0.5 && Math.abs(reset.yaw) < 1e-9, `R restores the spawn (z=${reset.z.toFixed(1)}, yaw=${reset.yaw})`);
-  ok(reset.place === 'Kampüs Kapısı', 'R restores the HUD zone label');
+  ok(labelBack && reset.place === 'Kampüs Kapısı',
+     `R restores the HUD zone label (probe="${reset.place}", dom="${reset.dom}")`);
 
   /* ---------- 10. Yörünge modu ---------- */
   await step('orbit button click', () => page.locator('#btn-orbit').click({ timeout: 15_000 }));
