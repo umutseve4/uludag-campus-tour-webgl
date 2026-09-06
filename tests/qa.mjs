@@ -98,6 +98,18 @@ const blockerAt = (x, z) => {
   ok(mismatch === 0, `contact attribution agrees with blocked() everywhere (200k random + 48 boundary points, ${mismatch} mismatches)`);
 }
 
+{
+  // makeBlocked bir YENİDEN TÜRETME değil, YENİDEN BAĞLAMA olmalı: ürünün metni
+  // birebir korunur, yalnızca fonksiyon adı değişir, BLOCKERS parametreden gelir.
+  const renamed = blockedSrc.replace("function blocked", "function _b");
+  const ids = [...new Set(blockedSrc.match(/[A-Za-z_$][A-Za-z0-9_$]*/g) || [])];
+  const allowed = new Set(["function", "blocked", "x", "z", "for", "const", "b", "of", "BLOCKERS", "if", "Math", "abs", "return", "true", "false", "w", "d"]);
+  const stray = ids.filter(t => !allowed.has(t));
+  ok(stray.length === 0 && (blockedSrc.match(/BLOCKERS/g) || []).length === 1 &&
+     renamed.replace("function _b", "function blocked") === blockedSrc,
+     `blocked() is re-bound verbatim, not re-derived: free names are exactly {${ids.join(" ")}}, BLOCKERS occurs once${stray.length ? " — stray: " + stray.join(",") : ""}`);
+}
+
 // Sahnedeki gerçek yapı ayak izleri (dünya koordinatı, elle türetildi)
 const FOOTPRINTS = [
   { name: 'faculty main',   x: 46,   z: -14,  w: 22, d: 56 },  // 56x22 blok rotY=-90
@@ -164,48 +176,75 @@ for (let s = 1; s <= 25; s++) { const r = simulate(s * 7919); if (r.inside) insi
 ok(insideCount === 0, `25 randomized 100s walks never end inside a building (${insideCount} violations)`);
 ok(worstStep < 0.9, `observed max per-frame step ${worstStep.toFixed(3)} m < ${MARGIN.toFixed(1)} m collision margin (theoretical bound ${(RUN * 0.05).toFixed(3)} m at the dt clamp)`);
 
-// Kasıtlı duvara koşu — konfigürasyon uzayında, kaçamaksız.
+// Kasıtlı duvara koşu — ÖRNEKLEME YOK. Serbest uzay, engellerin kendi kenarlarından
+// üretilen kesin hücre ayrıştırmasıyla; yüz örtüsü ise kapalı aralıkların birleşimiyle
+// analitik olarak hesaplanır. Çözünürlükten bağımsızdır.
 //
-// Önceki üç sürüm de sessizce anlamsızlaşmıştı:
-//   1) Başlangıç noktası komşu yapının içine düştü → ihlal 0. adımda, harness kendi
-//      kusurunu ürünün kusuru sandı.
+// Bu testin altı ayrı sürümü sessizce anlamsızlaşmıştı; her biri kalıcı kontrole dönüştü:
+//   1) Başlangıç noktası komşu yapının içine düştü → ihlal 0. adımda.
 //   2) Koşu hedefe varmadan BAŞKA engele çarpınca "geçemedi" bedavaya geldi.
-//   3) "Koridor yok, atla" kaçamağı: yüzeyin önünde tek bir noktada başka engel
-//      görmek, o duvara hiçbir yoldan varılamadığını KANITLAMAZ.
-// Bu sürüm yüzeyi noktasal değil, bütün olarak ele alır: her duvarın dış ε katmanı
-// baştan sona örneklenir, açık kalan her nokta START'tan flood-fill ile bağlantı
-// sınavına sokulur ve bağlantılı tek bir nokta varsa o yüzey MUTLAKA koşulur.
-// Her yüz tam olarak üç sınıftan birine düşer; sınıflandırılamayan yüz kalamaz.
+//   3) "Koridor yok, atla" kaçamağı.
+//   4) 41 noktalık örnekleme "kesin geometrik sınıflandırma" gibi sunuldu.
+//   5) Ölçülen MARGIN (0.9000000000000021) ürünün literal 0.9'undan genişti → yanlış atıf.
+//   6) Aday adımın hedef yüzü gerçekten geçtiği gösterilmiyordu; duvara varıp durmak yetmez.
 {
-  const G = 0.5, GX0 = -150, GX1 = 150, GZ0 = CAMPUS_Z[0], GZ1 = CAMPUS_Z[1];
-  const NX = Math.round((GX1 - GX0) / G) + 1, NZ = Math.round((GZ1 - GZ0) / G) + 1;
-  const idx = (i, j) => j * NX + i;
-  const seen = new Uint8Array(NX * NZ);
-  let reachCells = 0;
-  {
-    const si = Math.round((0 - GX0) / G), sj = Math.round((118 - GZ0) / G);
-    const stack = [idx(si, sj)]; seen[stack[0]] = 1;
-    while (stack.length) {
-      const c = stack.pop(), j = (c / NX) | 0, i = c - j * NX;
-      reachCells++;
-      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+  const EPSN = 1e-9;
+  const GX0 = -150, GX1 = 150, GZ0 = CAMPUS_Z[0], GZ1 = CAMPUS_Z[1];
+  // Genişletilmiş AABB'ler — ürünün blocked() eşiğiyle birebir aynı yarı-genişlikler.
+  const BOX = BLOCKERS.map(b => ({
+    x0: b.x - b.w / 2 - MARGIN, x1: b.x + b.w / 2 + MARGIN,
+    z0: b.z - b.d / 2 - MARGIN, z1: b.z + b.d / 2 + MARGIN
+  }));
+
+  // ---- Kesin hücre ayrıştırması: bütün kutu kenarları + alan sınırları -------------
+  const uniq = a => [...new Set(a.map(v => +v.toFixed(9)))].sort((p, q) => p - q);
+  const XS = uniq([GX0, GX1, ...BOX.flatMap(b => [b.x0, b.x1])].filter(v => v >= GX0 && v <= GX1));
+  const ZS = uniq([GZ0, GZ1, ...BOX.flatMap(b => [b.z0, b.z1])].filter(v => v >= GZ0 && v <= GZ1));
+  const NI = XS.length - 1, NJ = ZS.length - 1;
+  const cellFree = new Uint8Array(NI * NJ);
+  for (let i = 0; i < NI; i++) for (let j = 0; j < NJ; j++)
+    cellFree[j * NI + i] = blocked((XS[i] + XS[i + 1]) / 2, (ZS[j] + ZS[j + 1]) / 2) ? 0 : 1;
+  const locate = (arr, v) => { // v'yi içeren aralığın indeksi
+    for (let k = 0; k < arr.length - 1; k++) if (v >= arr[k] && v < arr[k + 1]) return k;
+    return -1;
+  };
+  const flood = (diag) => {
+    const seen = new Uint8Array(NI * NJ);
+    const si = locate(XS, 0), sj = locate(ZS, 118);
+    if (si < 0 || sj < 0 || !cellFree[sj * NI + si]) return null;
+    const nb = diag
+      ? [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]
+      : [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const st = [sj * NI + si]; seen[st[0]] = 1; let n = 0;
+    while (st.length) {
+      const c = st.pop(), j = (c / NI) | 0, i = c - j * NI; n++;
+      for (const [di, dj] of nb) {
         const ni = i + di, nj = j + dj;
-        if (ni < 0 || nj < 0 || ni >= NX || nj >= NZ) continue;
-        const n = idx(ni, nj);
-        if (seen[n] || blocked(GX0 + ni * G, GZ0 + nj * G)) continue;
-        seen[n] = 1; stack.push(n);
+        if (ni < 0 || nj < 0 || ni >= NI || nj >= NJ) continue;
+        const m = nj * NI + ni;
+        if (seen[m] || !cellFree[m]) continue;
+        seen[m] = 1; st.push(m);
       }
     }
+    return { seen, n };
+  };
+  const F4 = flood(false), F8 = flood(true);
+  let sameSet = !!F4 && !!F8 && F4.n === F8.n;
+  if (sameSet) for (let k = 0; k < F4.seen.length; k++) if (F4.seen[k] !== F8.seen[k]) { sameSet = false; break; }
+  let freeCells = 0, freeArea = 0, reachArea = 0;
+  for (let i = 0; i < NI; i++) for (let j = 0; j < NJ; j++) {
+    const k = j * NI + i; if (!cellFree[k]) continue;
+    freeCells++; const a = (XS[i + 1] - XS[i]) * (ZS[j + 1] - ZS[j]);
+    freeArea += a; if (F4.seen[k]) reachArea += a;
   }
-  ok(reachCells > 50000 && !blocked(0, 118),
-     `walkable area reachable from spawn: ${reachCells} of ${NX * NZ} grid cells (0.5 m)`);
-  const reachableAt = (x, z) => {
-    const i = Math.round((x - GX0) / G), j = Math.round((z - GZ0) / G);
-    for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
-      const ni = i + di, nj = j + dj;
-      if (ni >= 0 && nj >= 0 && ni < NX && nj < NZ && seen[idx(ni, nj)]) return true;
-    }
-    return false;
+  ok(!!F4 && !blocked(0, 118) && reachArea > 0.999 * freeArea,
+     `exact cell decomposition of free space (${NI}x${NJ} = ${NI * NJ} cells from AABB edges, ${freeCells} free): ` +
+     `spawn component covers ${reachArea.toFixed(0)} of ${freeArea.toFixed(0)} m2 free area — resolution-independent, not a sampled grid`);
+  ok(sameSet,
+     `4- and 8-connected flood fills reach the identical cell set (${F4.n} cells) — no classification rests on a corner-only pinch`);
+  const reachSeg = (x, z) => { // bir serbest nokta START bileşeninde mi
+    const i = locate(XS, x), j = locate(ZS, z);
+    return i >= 0 && j >= 0 && !!F4.seen[j * NI + i];
   };
 
   const EPS = 0.05;
@@ -213,8 +252,11 @@ ok(worstStep < 0.9, `observed max per-frame step ${worstStep.toFixed(3)} m < ${M
   const rand = () => (rng = (rng * 1103515245 + 12345) % 2147483648) / 2147483648;
 
   // Oyunun hareket entegratörünün birebir kopyası; yön birim vektör olarak verilir.
-  const drive = (sx, sz, ux, uz, fast) => {
-    let x = sx, z = sz, vx = fast * ux * RUN, vz = fast * uz * RUN, hit = -1, worst = 0, breach = false;
+  // hitOwn: reddedilen aday adımın HEDEF gövdenin genişletilmiş kutusuna girdiğini,
+  // yani yüzü gerçekten çaprazladığını kanıtlar (duvara varıp durmak yetmez).
+  const drive = (sx, sz, ux, uz, fast, target) => {
+    let x = sx, z = sz, vx = fast * ux * RUN, vz = fast * uz * RUN;
+    let hit = -1, worst = 0, breach = false, hitOwn = false, deepest = 0;
     for (let step = 0; step < 4000; step++) {
       const dt = Math.min(0.05, 1 / 240 + rand() * 0.06);   // 4 ms … 50 ms, clamp dahil
       vx += ux * RUN * ACCEL * dt; vz += uz * RUN * ACCEL * dt;
@@ -223,65 +265,118 @@ ok(worstStep < 0.9, `observed max per-frame step ${worstStep.toFixed(3)} m < ${M
       if (vlen > RUN) { vx = (vx / vlen) * RUN; vz = (vz / vlen) * RUN; }
       worst = Math.max(worst, Math.hypot(vx, vz) * dt);
       const nx = x + vx * dt, nz = z + vz * dt;
-      if (!blocked(nx, z)) x = nx; else { if (hit < 0) hit = blockerAt(nx, z); vx = 0; }
-      if (!blocked(x, nz)) z = nz; else { if (hit < 0) hit = blockerAt(x, nz); vz = 0; }
+      if (!blocked(nx, z)) x = nx;
+      else {
+        if (hit < 0) hit = blockerAt(nx, z);
+        if (target >= 0 && singleBlocked[target](nx, z)) { hitOwn = true; deepest = Math.max(deepest, Math.abs(nx - x)); }
+        vx = 0;
+      }
+      if (!blocked(x, nz)) z = nz;
+      else {
+        if (hit < 0) hit = blockerAt(x, nz);
+        if (target >= 0 && singleBlocked[target](x, nz)) { hitOwn = true; deepest = Math.max(deepest, Math.abs(nz - z)); }
+        vz = 0;
+      }
       if (blocked(x, z)) { breach = true; break; }
       if (hit >= 0 && Math.hypot(vx, vz) < 0.01) break;
     }
-    return { hit, worst, breach };
+    return { hit, worst, breach, hitOwn, deepest, x, z, free: !blocked(x, z) };
   };
 
-  let tested = 0, covered = 0, disconnected = 0, breaches = 0, diagRuns = 0, diagBreaches = 0, worstVar = 0;
+  let tested = 0, covered = 0, disconnected = 0, breaches = 0, diagRuns = 0, diagBreaches = 0;
+  let worstVar = 0, noCross = 0, notFree = 0;
   const misattributed = [], classes = [];
   for (let i = 0; i < BLOCKERS.length; i++) {
-    const b = BLOCKERS[i];
+    const B = BOX[i];
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const halfN = (dx ? b.w / 2 : b.d / 2) + MARGIN;
-      const halfL = (dx ? b.d / 2 : b.w / 2) - 0.2;   // gerçek duvar açıklığı; pay taşması komşu yüze aittir
-      let open = 0, best = null;
-      for (let s = 0; s <= 40; s++) {
-        const t = -halfL + (2 * halfL * s) / 40;
-        const px = b.x + (dx ? dx * (halfN + EPS) : t);
-        const pz = b.z + (dz ? dz * (halfN + EPS) : t);
-        if (blocked(px, pz)) continue;
-        open++;
-        if (!reachableAt(px, pz)) continue;
-        let d = halfN + EPS;
-        while (d < halfN + 45) {
-          const qx = b.x + (dx ? dx * (d + 0.5) : t), qz = b.z + (dz ? dz * (d + 0.5) : t);
-          if (blocked(qx, qz) || !reachableAt(qx, qz)) break;
-          d += 0.5;
-        }
-        const runway = d - halfN;
-        if (!best || runway > best.runway) best = { t, runway };
+      // Normal ekseni a, yanal eksen l. Yüz düzlemi f; yanal açıklık (lo, hi) —
+      // baş-baş gelen bir koşunun bu gövdeye çarptığı yanal konumların TAM kümesi.
+      const f = dx ? (dx > 0 ? B.x1 : B.x0) : (dz > 0 ? B.z1 : B.z0);
+      const s = dx || dz;
+      const lo = dx ? B.z0 : B.x0, hi = dx ? B.z1 : B.x1;
+      const n = f + s * EPS;                       // dış ε katmanının normal koordinatı
+      // Örtü: n düzleminde diğer gövdelerin kapalı yanal aralıklarının BİRLEŞİMİ.
+      const cov = [];
+      for (let j = 0; j < BOX.length; j++) {
+        if (j === i) continue;
+        const O = BOX[j];
+        const a0 = dx ? O.x0 : O.z0, a1 = dx ? O.x1 : O.z1;
+        if (!(n > a0 && n < a1)) continue;
+        cov.push(dx ? [O.z0, O.z1] : [O.x0, O.x1]);
       }
-      if (open === 0) { covered++; classes.push(`${i}${dx}${dz}:covered`); continue; }
-      if (!best) { disconnected++; classes.push(`${i}${dx}${dz}:disconnected(${open})`); continue; }
+      cov.sort((p, q) => p[0] - q[0]);
+      const gaps = [];                              // örtülmeyen açık alt-aralıklar
+      let cur = lo;
+      for (const [c0, c1] of cov) {
+        if (c0 > cur + EPSN) gaps.push([cur, Math.min(c0, hi)]);
+        cur = Math.max(cur, c1);
+        if (cur >= hi) break;
+      }
+      if (cur < hi - EPSN) gaps.push([cur, hi]);
+      const open = gaps.filter(g => g[1] - g[0] > 1e-6);
+      if (open.length === 0) {
+        covered++; classes.push(`${i}${dx}${dz}:covered`);
+        continue;   // analitik olarak tamamen örtülü: bu yüze hiçbir yanal konumdan ulaşılamaz
+      }
+      // Her açık aralık serbest ve bağlantılı bir doğru parçasıdır → tek temsilci
+      // noktası, aralığın TAMAMININ bileşenini belirler. Bu örnekleme değildir.
+      const live = open.filter(g => reachSeg(dx ? n : (g[0] + g[1]) / 2, dx ? (g[0] + g[1]) / 2 : n));
+      if (live.length === 0) {
+        disconnected++; classes.push(`${i}${dx}${dz}:disconnected(${open.length} open)`);
+        continue;
+      }
+      // Koridor uzunluğu analitik: yanal kenarlara göre parçala, her parçada sabit.
+      const cuts = new Set();
+      for (const g of live) { cuts.add(g[0]); cuts.add(g[1]); }
+      for (const O of BOX) { const e0 = dx ? O.z0 : O.x0, e1 = dx ? O.z1 : O.x1; cuts.add(e0); cuts.add(e1); }
+      const cl = [...cuts].sort((p, q) => p - q);
+      let best = null;
+      for (const g of live) {
+        for (let k = 0; k < cl.length - 1; k++) {
+          const p0 = Math.max(cl[k], g[0]), p1 = Math.min(cl[k + 1], g[1]);
+          if (p1 - p0 <= 1e-6) continue;
+          const t = (p0 + p1) / 2;
+          let run = s > 0 ? ((dx ? GX1 : GZ1) - f) : (f - (dx ? GX0 : GZ0));
+          for (let j = 0; j < BOX.length; j++) {
+            if (j === i) continue;
+            const O = BOX[j];
+            const l0 = dx ? O.z0 : O.x0, l1 = dx ? O.z1 : O.x1;
+            if (!(t > l0 && t < l1)) continue;
+            const a0 = dx ? O.x0 : O.z0, a1 = dx ? O.x1 : O.z1;
+            const d = s > 0 ? a0 - f : f - a1;
+            if (d > 0) run = Math.min(run, d);
+          }
+          run = Math.min(run, 45);
+          if (!best || run > best.run) best = { t, run };
+        }
+      }
       tested++;
-      const { t, runway } = best;
-      const slam = runway < 5 ? 1 : 0;   // koridor kısaysa duvara tam hızla yapış
-      const sx = b.x + (dx ? dx * (halfN + runway) : t);
-      const sz = b.z + (dz ? dz * (halfN + runway) : t);
-      const r = drive(sx, sz, -dx, -dz, slam);
+      const { t, run } = best;
+      const d = Math.max(0.03, run - 0.02);
+      const slam = run < 5 ? 1 : 0;   // koridor kısaysa duvara tam hızla yapış
+      const sx = dx ? f + s * d : t, sz = dx ? t : f + s * d;
+      const r = drive(sx, sz, dx ? -s : 0, dx ? 0 : -s, slam, i);
       worstVar = Math.max(worstVar, r.worst);
       if (r.breach) breaches++;
-      if (r.hit !== i) misattributed.push(`${i}${dx}${dz}: hit ${r.hit} (runway ${runway.toFixed(1)}${slam ? ', slam' : ''})`);
-      classes.push(`${i}${dx}${dz}:tested r=${runway.toFixed(1)}${slam ? '/slam' : ''}`);
-      // Çapraz yaklaşımlar: köşeden gelen oyuncu da duvarı delememeli.
+      if (!r.free) notFree++;
+      if (!r.hitOwn) noCross++;
+      if (r.hit !== i) misattributed.push(`${i}${dx}${dz}: hit ${r.hit} (runway ${run.toFixed(2)}${slam ? ', slam' : ''})`);
+      classes.push(`${i}${dx}${dz}:tested r=${run.toFixed(2)}${slam ? '/slam' : ''}`);
       for (const ang of [0.5, -0.5]) {
-        const u = dx ? [-dx * Math.cos(ang), Math.sin(ang)] : [Math.sin(ang), -dz * Math.cos(ang)];
-        const rd = drive(sx, sz, u[0], u[1], slam);
+        const u = dx ? [-s * Math.cos(ang), Math.sin(ang)] : [Math.sin(ang), -s * Math.cos(ang)];
+        const rd = drive(sx, sz, u[0], u[1], slam, -1);
         diagRuns++;
         worstVar = Math.max(worstVar, rd.worst);
         if (rd.breach) diagBreaches++;
       }
     }
   }
-  ok(tested === 30 && covered === 2 && disconnected === 0 &&
-     tested + covered + disconnected === BLOCKERS.length * 4,
-     `wall faces classify to the pinned breakdown 30/2/0: ${tested} sprinted + ${covered} geometrically covered + ${disconnected} disconnected from spawn = ${BLOCKERS.length * 4} — ${classes.join(', ')}`);
-  ok(misattributed.length === 0,
-     `each sprinted face was stopped by the wall it aimed at (${tested - misattributed.length}/${tested}${misattributed.length ? ' — ' + misattributed.join(', ') : ''})`);
+  ok(tested + covered + disconnected === BLOCKERS.length * 4 && tested === 30 && covered === 2 && disconnected === 0,
+     `every wall face classified analytically, exactly once: ${tested} sprinted + ${covered} fully covered by the closed intervals of other bodies + ${disconnected} disconnected = ${BLOCKERS.length * 4} — ${classes.join(', ')}`);
+  ok(misattributed.length === 0 && noCross === 0 && notFree === 0,
+     `each sprinted face: the rejected candidate step actually entered the target body (${tested - noCross}/${tested} crossed the face plane), ` +
+     `attribution matched (${tested - misattributed.length}/${tested}), final position free (${tested - notFree}/${tested})` +
+     `${misattributed.length ? ' — ' + misattributed.join(', ') : ''}`);
   ok(breaches === 0,
      `${tested} head-on variable-timestep sprints never breach a wall (${breaches} breaches, worst step ${worstVar.toFixed(3)} m)`);
   ok(diagBreaches === 0,
