@@ -1,7 +1,8 @@
 # Bursa Uludağ Üniversitesi Kampüs Turu
 
 Görükle Yerleşkesi'nde geçen, **tek dosyalık** bir 3B yürüyüş deneyimi. Tarayıcıda `index.html`'i
-açmak yeterli — build adımı, paket kurulumu, indirilecek model/doku dosyası yok.
+açmak yeterli — build adımı, paket kurulumu, indirilecek model/doku dosyası yok. (Tek dosya, tek
+*yerel* dosya demek: three.js çalışma anında CDN'den iner, yani çevrimdışı açılmaz.)
 
 **Build by Opus 5.**
 
@@ -44,7 +45,7 @@ Binası → Merkez Kütüphane → Çam Korusu → Uludağ Manzarası) gösterir
 ## Teknik
 
 - Three.js **0.169.0**, `importmap` üzerinden CDN'den; `OrbitControls` aynı sürümün `examples/jsm` yolundan.
-- Tek dosya `index.html` (41.347 bayt), sıfır bağımlılık, sıfır build adımı, `node_modules` yok.
+- Tek dosya `index.html` (41.347 bayt), sıfır yerel bağımlılık, sıfır build adımı, `node_modules` yok.
 - Performans: instancing (ağaçlar, çalılar, çiçekler, şerit çizgileri), paylaşılan materyal havuzu,
   `devicePixelRatio` 2 ile sınırlı, sekme arkaplana alındığında render durur.
 - Erişilebilirlik/dayanıklılık: `prefers-reduced-motion` açıksa sahne hareketsiz yörünge moduna düşer,
@@ -57,7 +58,7 @@ Binası → Merkez Kütüphane → Çam Korusu → Uludağ Manzarası) gösterir
 
 İki bağımsız katman var ve ikisi de her push'ta `.github/workflows/qa.yml` ile çalışır.
 
-**1) Statik harness** — `tests/qa.mjs`, bağımlılıksız: **50 kontrolün tamamı geçer.**
+**1) Statik harness** — `tests/qa.mjs`, bağımlılıksız: **51 kontrolün tamamı geçer.**
 `index.html`'in **gerçek kaynak metninden** sabitleri, `BLOCKERS` dizisini ve `blocked()`
 fonksiyonunu ayıklayıp Node'da koşturur:
 
@@ -68,15 +69,18 @@ fonksiyonunu ayıklayıp Node'da koşturur:
 - açılış kompozisyonu korunuyor: `START.yaw = 0`, yani ziyaretçi kampüse bakarak doğuyor;
 - test sondası `window.__campus` donmuş ve yalnız getter — testler sahneyi süremez;
 - 8 klavye kodunun tamamı ve sürükle-bak pointer olayları bağlı;
-- **çarpışma kapsaması:** 8 yapı ayak izinin her biri 625 örnek noktada tam kapalı (0 açık nokta);
+- çarpışma payı varsayılmıyor, `blocked()`'ın kendisinden ikili aramayla **ölçülüyor** (0,9 m);
+- **çarpışma kapsaması:** 8 yapı ayak izinin her biri 625 örnek noktada kapalı (0 açık nokta);
 - **yol koridoru** 2000 örnekte hiç kapalı değil — otobüs ve yürüyüş hattı hiç tıkanmıyor;
 - **25 ayrı rastgele 100 saniyelik yürüyüş** hiçbir binanın içinde bitmiyor; gözlenen en büyük kare
   adımı **0,188 m**, `dt` kelepçesindeki teorik tavan ise **0,700 m** — ikisi de 0,9 m'lik çarpışma
   payının altında;
-- **32 değişken adımlı (4–50 ms) koşu** doğrudan duvarlara sürülüyor, hiçbiri içeri geçemiyor;
-  gözlenen en büyük kare adımı burada **0,616 m**. Her koşunun başlangıç noktası, komşu bir yapının
-  hacmine düşmediği **kanıtlanana dek** dışarı itilir — aksi hâlde harness kendi kusurunu ürünün
-  kusuru sanar (bu tam olarak bir kez oldu ve ayrı bir kontrolle kalıcı olarak kapatıldı);
+- **32 değişken adımlı (4–50 ms) koşu** doğrudan duvarlara sürülüyor. Her koşu, hedef yüzeyin
+  önündeki **doğrulanmış boş koridorun** ucundan başlar ve her çarpışma hangi engele ait olduğuyla
+  kaydedilir: harness **32/32 hedeflenen duvar teması** olduğunu ve hiçbirinin içeri geçmediğini
+  ayrı ayrı doğrular. (Bu iki tuzağın ikisi de gerçekten yaşandı: önce başlangıç noktası komşu
+  binanın içine düştü, sonra bağımsız denetim "başka bir duvara çarpıp bedava geçen koşu" riskini
+  gösterdi. İkisi de kalıcı kontrole dönüştürüldü.)
 - ring otobüsü [−230,0 · +116,0] m aralığında kalıyor ve iki yönde de gerçekten gidip geliyor;
 - HUD yer adları 8 farklı z konumunda doğru çözümleniyor;
 - README'nin **sayısal iddiaları** (dosya boyutu, kontrol sayısı) dosyanın kendisiyle karşılaştırılıyor.
@@ -84,15 +88,32 @@ fonksiyonunu ayıklayıp Node'da koşturur:
 **2) Gerçek tarayıcı kabulü — `tests/browser.mjs`, Chromium + WebGL.**
 CI, Playwright'ı depo ağacının dışına kurar, sayfayı yerel sunucudan açar ve gerçek kullanıcı
 hareketlerini yapar: yükleme (0 konsol hatası, 0 başarısız istek), canlı WebGL bağlamı, loader'ın
-kalkması, render döngüsünün ilerlemesi, `W` ile yürüyüp bölge etiketinin değişmesi, sürükleyip
-pusulanın dönmesi, `R` ile başa dönüş, `O`/düğme ile yörünge modu, sondanın yazılamazlığı ve
-yeniden boyutlandırma. CI koşucusunda GPU yoktur (SwiftShader), bu yüzden testler kare hızına değil
-**ilerlemeye** bakar. Kanıt olarak `artifacts/campus.png` ekran görüntüsü CI çıktısına yüklenir.
+kalkması, render döngüsünün ilerlemesi, katmanların sahnenin ortasını kapatmaması, `W` ile yürüyüp
+bölge etiketinin değişmesi, sürükleyip pusulanın dönmesi, `R` ile başa dönüş ve HUD etiketinin
+**kaç kare içinde** yetiştiği, `O`/düğme ile yörünge modu, sondanın yazılamazlığı, dar ekranda
+etkileşimin sürmesi ve yeniden boyutlandırma. CI koşucusunda GPU yoktur (SwiftShader), bu yüzden
+testler kare hızına değil **ilerlemeye** bakar. Kanıt olarak `artifacts/campus.png` ekran görüntüsü
+CI çıktısına yüklenir.
 
 ```bash
 node tests/qa.mjs        # → QA RESULT: PASS (0 failures)
 node tests/browser.mjs   # → BROWSER RESULT: PASS (0 failures)  (Playwright gerektirir)
 ```
+
+### Kanıtın sınırları
+
+Abartmamak için, testlerin **kapsamadığı** şeyler:
+
+- **Akıcılık:** CI'da GPU yok; ölçülen kare hızı yazılım rasterizasyonunun hızıdır, gerçek
+  donanımdaki deneyimin ölçüsü değildir.
+- **Tarayıcı çeşitliliği:** yalnız Linux/Chromium + SwiftShader doğrulanır; Firefox, Safari/WebKit
+  ve mobil GPU'lar kapsam dışıdır.
+- **Örnekleme ≠ ispat:** ayak izi ızgaraları, 25 rastgele yürüyüş ve 32 koşu güçlü ampirik
+  kanıttır; sürekli uzayda tünelleme olmadığının matematiksel ispatı değildir.
+- **Mimari doğruluk:** sahne Görükle Yerleşkesi'nden esinlenir; ölçülü/haritalı bir röprodüksiyon
+  değildir ve hiçbir test binaları gerçek konumlarıyla karşılaştırmaz.
+- **Görsel kalite:** ekran görüntüsü kanıt olarak yüklenir, ancak bir referans görüntüyle
+  karşılaştırılmaz; kompozisyon bozulması insan gözü ister.
 
 ## Lisans
 
