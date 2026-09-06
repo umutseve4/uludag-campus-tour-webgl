@@ -61,6 +61,27 @@ const BLOCKERS = eval('(' + src.match(/const BLOCKERS = (\[[\s\S]*?\]);/)[1] + '
 const blockedSrc = src.match(/function blocked\(x, z\) \{[\s\S]*?\n\}/)[0];
 const blocked = eval(blockedSrc.replace('function blocked', 'function _b') + '; _b');
 
+// Çarpışma payını VARSAYMA: blocked()'ın kendisinden ikili aramayla ölç.
+const MARGIN = (() => {
+  const b = BLOCKERS[0];
+  let lo = b.w / 2, hi = b.w / 2 + 10;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    if (blocked(b.x + mid, b.z)) lo = mid; else hi = mid;
+  }
+  return (lo + hi) / 2 - b.w / 2;
+})();
+ok(MARGIN > 0.5 && MARGIN < 1.5, `collision margin measured from blocked() itself: ${MARGIN.toFixed(3)} m`);
+
+// Hangi engelin içindeyiz? (temas atfı için; blocked() ile aynı geometri)
+const blockerAt = (x, z) => {
+  for (let i = 0; i < BLOCKERS.length; i++) {
+    const b = BLOCKERS[i];
+    if (Math.abs(x - b.x) < b.w / 2 + MARGIN && Math.abs(z - b.z) < b.d / 2 + MARGIN) return i;
+  }
+  return -1;
+};
+
 // Sahnedeki gerçek yapı ayak izleri (dünya koordinatı, elle türetildi)
 const FOOTPRINTS = [
   { name: 'faculty main',   x: 46,   z: -14,  w: 22, d: 56 },  // 56x22 blok rotY=-90
@@ -125,43 +146,54 @@ function simulate(seed) {
 let insideCount = 0, worstStep = 0;
 for (let s = 1; s <= 25; s++) { const r = simulate(s * 7919); if (r.inside) insideCount++; worstStep = Math.max(worstStep, r.worst); }
 ok(insideCount === 0, `25 randomized 100s walks never end inside a building (${insideCount} violations)`);
-ok(worstStep < 0.9, `observed max per-frame step ${worstStep.toFixed(3)} m < 0.9 m collision margin (theoretical bound ${(RUN * 0.05).toFixed(3)} m at the dt clamp)`);
+ok(worstStep < 0.9, `observed max per-frame step ${worstStep.toFixed(3)} m < ${MARGIN.toFixed(1)} m collision margin (theoretical bound ${(RUN * 0.05).toFixed(3)} m at the dt clamp)`);
 
-// Kasıtlı duvara koşu: değişken dt ile, dört yönden, her engelin merkezine doğru.
-// Başlangıç noktası KOMŞU bir yapının içine düşebilir (fakülte/kütüphane hacimleri
-// 45 m'lik ofseti yutuyor); bu yüzden nokta serbest kalana dek dışarı itilir.
-// Aksi hâlde harness kendi kusurunu yürüyüşçünün kusuru sanıp 0. adımda "ihlal" sayardı.
+// Kasıtlı duvara koşu: değişken dt ile, dört yönden, HEDEFLENEN engelin duvarına.
+//
+// İki tuzak var ve ikisi de testi sessizce anlamsızlaştırır:
+//   1) Başlangıç noktası komşu bir yapının içine düşerse ihlal 0. adımda oluşur
+//      ve harness kendi kusurunu ürünün kusuru sanar.
+//   2) Koşu, hedefe varmadan BAŞKA bir engele çarparsa "içeri giremedi" sonucu
+//      bedavaya gelir; hedeflenen duvar hiç sınanmamış olur.
+// Bu yüzden başlangıç, hedef yüzeyin önündeki *doğrulanmış boş koridorun* en uç
+// noktasına konur ve her çarpışma hangi engele ait olduğuyla birlikte kaydedilir.
 {
-  let breaches = 0, worstVar = 0, sprints = 0, relocated = 0;
+  let breaches = 0, worstVar = 0, intended = 0, attempts = 0;
+  const misses = [];
   let rng = 424242;
   const rand = () => (rng = (rng * 1103515245 + 12345) % 2147483648) / 2147483648;
-  for (const b of BLOCKERS) {
+  for (let i = 0; i < BLOCKERS.length; i++) {
+    const b = BLOCKERS[i];
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      let d0 = 45;
-      while (blocked(b.x + dx * d0, b.z + dz * d0) && d0 < 220) { d0 += 5; }
-      if (blocked(b.x + dx * d0, b.z + dz * d0)) continue;   // bu yönden serbest başlangıç yok
-      if (d0 !== 45) relocated++;
-      let x = b.x + dx * d0, z = b.z + dz * d0, vx = 0, vz = 0;
-      sprints++;
-      for (let step = 0; step < 1600; step++) {
+      attempts++;
+      // Hedef yüzeyin dışına çık, sonra boş kaldığı sürece geriye doğru uzaklaş.
+      const face = (Math.abs(dx) ? b.w / 2 : b.d / 2) + MARGIN;
+      let d = face + 0.5;
+      while (d < face + 45 && !blocked(b.x + dx * (d + 0.5), b.z + dz * (d + 0.5))) d += 0.5;
+      const runway = d - face;
+      if (runway < 5) { misses.push(`${i}${dx}${dz}: runway ${runway.toFixed(1)} m`); continue; }
+      let x = b.x + dx * d, z = b.z + dz * d, vx = 0, vz = 0;
+      let hit = -1;
+      for (let step = 0; step < 2000; step++) {
         const dt = Math.min(0.05, 1 / 240 + rand() * 0.06);   // 4 ms … 50 ms, clamp dahil
-        const ax = -dx, az = -dz;
-        vx += ax * RUN * ACCEL * dt; vz += az * RUN * ACCEL * dt;
+        vx += -dx * RUN * ACCEL * dt; vz += -dz * RUN * ACCEL * dt;
         const damp = Math.max(0, 1 - FRICTION * dt); vx *= damp; vz *= damp;
         const vlen = Math.hypot(vx, vz);
         if (vlen > RUN) { vx = (vx / vlen) * RUN; vz = (vz / vlen) * RUN; }
         worstVar = Math.max(worstVar, Math.hypot(vx, vz) * dt);
         const nx = x + vx * dt, nz = z + vz * dt;
-        if (!blocked(nx, z)) x = nx; else vx = 0;
-        if (!blocked(x, nz)) z = nz; else vz = 0;
+        if (!blocked(nx, z)) x = nx; else { if (hit < 0) hit = blockerAt(nx, z); vx = 0; }
+        if (!blocked(x, nz)) z = nz; else { if (hit < 0) hit = blockerAt(x, nz); vz = 0; }
         if (blocked(x, z)) { breaches++; break; }
+        if (hit >= 0 && Math.hypot(vx, vz) < 0.01) break;   // duvara yaslandı, iş bitti
       }
+      if (hit === i) intended++; else misses.push(`${i}${dx}${dz}: hit ${hit}`);
     }
   }
-  ok(sprints === BLOCKERS.length * 4,
-     `every wall sprint started outside the buildings (${sprints}/${BLOCKERS.length * 4} ran, ${relocated} start points pushed outward)`);
+  ok(intended === attempts,
+     `every wall sprint reached the wall it aimed at (${intended}/${attempts} intended contacts${misses.length ? ' — ' + misses.join(', ') : ''})`);
   ok(breaches === 0,
-     `${sprints} variable-timestep sprints straight at the walls never breach one (${breaches} breaches, worst step ${worstVar.toFixed(3)} m)`);
+     `${attempts} variable-timestep sprints straight at the walls never breach one (${breaches} breaches, worst step ${worstVar.toFixed(3)} m)`);
 }
 
 /* ---------- 5. Ring otobüsü döngüsü ---------- */
