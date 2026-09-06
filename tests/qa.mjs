@@ -128,14 +128,22 @@ ok(insideCount === 0, `25 randomized 100s walks never end inside a building (${i
 ok(worstStep < 0.9, `observed max per-frame step ${worstStep.toFixed(3)} m < 0.9 m collision margin (theoretical bound ${(RUN * 0.05).toFixed(3)} m at the dt clamp)`);
 
 // Kasıtlı duvara koşu: değişken dt ile, dört yönden, her engelin merkezine doğru.
+// Başlangıç noktası KOMŞU bir yapının içine düşebilir (fakülte/kütüphane hacimleri
+// 45 m'lik ofseti yutuyor); bu yüzden nokta serbest kalana dek dışarı itilir.
+// Aksi hâlde harness kendi kusurunu yürüyüşçünün kusuru sanıp 0. adımda "ihlal" sayardı.
 {
-  let breaches = 0, worstVar = 0;
+  let breaches = 0, worstVar = 0, sprints = 0, relocated = 0;
   let rng = 424242;
   const rand = () => (rng = (rng * 1103515245 + 12345) % 2147483648) / 2147483648;
   for (const b of BLOCKERS) {
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      let x = b.x + dx * 45, z = b.z + dz * 45, vx = 0, vz = 0;
-      for (let step = 0; step < 1200; step++) {
+      let d0 = 45;
+      while (blocked(b.x + dx * d0, b.z + dz * d0) && d0 < 220) { d0 += 5; }
+      if (blocked(b.x + dx * d0, b.z + dz * d0)) continue;   // bu yönden serbest başlangıç yok
+      if (d0 !== 45) relocated++;
+      let x = b.x + dx * d0, z = b.z + dz * d0, vx = 0, vz = 0;
+      sprints++;
+      for (let step = 0; step < 1600; step++) {
         const dt = Math.min(0.05, 1 / 240 + rand() * 0.06);   // 4 ms … 50 ms, clamp dahil
         const ax = -dx, az = -dz;
         vx += ax * RUN * ACCEL * dt; vz += az * RUN * ACCEL * dt;
@@ -150,7 +158,10 @@ ok(worstStep < 0.9, `observed max per-frame step ${worstStep.toFixed(3)} m < 0.9
       }
     }
   }
-  ok(breaches === 0, `32 variable-timestep sprints straight at the walls never breach one (${breaches} breaches, worst step ${worstVar.toFixed(3)} m)`);
+  ok(sprints === BLOCKERS.length * 4,
+     `every wall sprint started outside the buildings (${sprints}/${BLOCKERS.length * 4} ran, ${relocated} start points pushed outward)`);
+  ok(breaches === 0,
+     `${sprints} variable-timestep sprints straight at the walls never breach one (${breaches} breaches, worst step ${worstVar.toFixed(3)} m)`);
 }
 
 /* ---------- 5. Ring otobüsü döngüsü ---------- */
