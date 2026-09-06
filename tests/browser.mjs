@@ -10,13 +10,15 @@
  * saniyede birkaç kareye düşer. Bu yüzden test "kaç fps" diye sormaz — kare
  * sayacının ilerlediğini ve girdinin durumu gerçekten değiştirdiğini,
  * gerekiyorsa bekleyerek doğrular. Ölçülen fps rapora bilgi olarak yazılır.
- * Aynı nedenle HUD gibi kısıtlanmış (throttled) yüzeyler okunmadan önce
- * beklenir: yavaş koşucuda yarış koşulu, davranış kusuru gibi görünür.
+ *
+ * Beklemek tek başına yetmez: sonsuza kadar beklemek "çok geç güncelleniyor"
+ * kusurunu ye şil gösterir. Bu yüzden HUD'ın yetişmesi SANİYE değil KARE
+ * cinsinden bütçelenir; bütçe koşucunun hızından bağımsızdır.
  *
  * Tuvale tıklarken locator.click() KULLANILMAZ: Playwright'ın hit-target
  * denetimi, tuvalin üstündeki HUD/yönerge katmanlarına takılır ve 30 sn bekler.
- * Tuval ham fare olaylarıyla sürülür; katmanların nereyi kapattığı ayrı bir
- * kontrolle raporlanır.
+ * Tuval ham fare olaylarıyla sürülür; katmanların neyi kapattığı ayrı bir
+ * kontrolle hem geniş hem dar ekranda doğrulanır.
  *
  * Kullanım:  node tests/browser.mjs http://127.0.0.1:8080
  * Playwright depo ağacının dışına kurulur; PW_ROOT ya da NODE_PATH ile bulunur.
@@ -88,8 +90,13 @@ page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text(
 page.on('pageerror', (e) => pageErrors.push(String(e)));
 page.on('requestfailed', (r) => failedRequests.push(`${r.url()} :: ${r.failure()?.errorText}`));
 
+const hitTarget = (page, w, h) => page.evaluate(([x, y]) => {
+  const el = document.elementFromPoint(x, y);
+  return el ? (el.id || el.tagName.toLowerCase()) : 'none';
+}, [w, h]);
+
 let fps = 0;
-let start = null, afterWalk = null;
+let start = null, afterWalk = null, hudFrames = null;
 
 try {
   /* ---------- 1. Yükleme ---------- */
@@ -136,13 +143,11 @@ try {
   ok((await page.locator('h1').innerText()).trim() === 'Bursa Uludağ Üniversitesi Kampüs Turu', 'top overlay title rendered');
 
   /* ---------- 5. Katmanlar sahnenin ortasını kapatmıyor ---------- */
-  const hit = await page.evaluate(([w, h]) => {
-    const at = (x, y) => {
-      const el = document.elementFromPoint(x, y);
-      return el ? (el.id || el.tagName.toLowerCase()) : 'none';
-    };
-    return { center: at(w / 2, h / 2), low: at(w / 2, h - 60), upper: at(w / 2, h * 0.35) };
-  }, [VW, VH]);
+  const hit = {
+    center: await hitTarget(page, VW / 2, VH / 2),
+    upper: await hitTarget(page, VW / 2, VH * 0.35),
+    low: await hitTarget(page, VW / 2, VH - 60)
+  };
   ok(hit.center === 'scene' && hit.upper === 'scene',
      `overlays leave the scene interactive (center=${hit.center}, upper=${hit.upper}, bottom bar=${hit.low})`);
 
@@ -181,18 +186,25 @@ try {
   ok(Math.abs(look) > 0.2, `drag rotated the view (yaw=${look.toFixed(3)} rad)`);
   ok(bearing0 !== bearing1, `compass followed the look: ${bearing0} → ${bearing1}`);
 
-  /* ---------- 9. Sıfırlama ---------- */
+  /* ---------- 9. Sıfırlama + HUD gecikme bütçesi ---------- */
+  const fReset = await page.evaluate(() => window.__campus.frames);
+  const tReset = Date.now();
   await page.keyboard.press('KeyR');
   await until(page, () => Math.abs(window.__campus.z - 118) < 0.5, { timeout: 15_000 });
-  // Konum her karede, HUD etiketi kısıtlanmış aralıklarla güncellenir: etiketi bekle.
+  // Konum her karede, HUD etiketi kısıtlanmış aralıklarla güncellenir: etiketi bekle,
+  // ama KAÇ KARE beklediğini de ölç — "hiç güncellenmiyor" kadar "çok geç" de kusurdur.
   const labelBack = await until(page, () => window.__campus.place === 'Kampüs Kapısı', { timeout: 20_000 });
   const reset = await page.evaluate(() => ({
     x: window.__campus.x, z: window.__campus.z, yaw: window.__campus.yaw,
-    place: window.__campus.place, dom: (document.getElementById('place') || {}).textContent
+    place: window.__campus.place, frames: window.__campus.frames,
+    dom: (document.getElementById('place') || {}).textContent
   }));
+  hudFrames = reset.frames - fReset;
   ok(Math.abs(reset.z - 118) < 0.5 && Math.abs(reset.yaw) < 1e-9, `R restores the spawn (z=${reset.z.toFixed(1)}, yaw=${reset.yaw})`);
   ok(labelBack && reset.place === 'Kampüs Kapısı',
      `R restores the HUD zone label (probe="${reset.place}", dom="${reset.dom}")`);
+  ok(labelBack && hudFrames <= 15,
+     `HUD caught up within the frame budget: ${hudFrames} rendered frames (${Date.now() - tReset} ms at ~${fps.toFixed(1)} fps), budget 15`);
 
   /* ---------- 10. Yörünge modu ---------- */
   await step('orbit button click', () => page.locator('#btn-orbit').click({ timeout: 15_000 }));
@@ -213,14 +225,28 @@ try {
   });
   ok(!probeWritable, 'test probe is read-only: it cannot drive the scene');
 
-  /* ---------- 12. Yeniden boyutlandırma ---------- */
-  await page.setViewportSize({ width: 620, height: 460 });
-  await sleep(1200);
+  /* ---------- 12. Dar ekran: hem yeniden boyutlanıyor hem hâlâ kullanılabiliyor ---------- */
+  const NW = 620, NH = 460;
+  await page.setViewportSize({ width: NW, height: NH });
+  await sleep(1500);
   const resized = await page.evaluate(() => {
     const c = document.getElementById('scene');
     return { w: c.width, h: c.height };
   });
   ok(resized.w > 0 && resized.h > 0 && resized.w !== glInfo.w, `resize handled: ${glInfo.w}×${glInfo.h} → ${resized.w}×${resized.h}`);
+
+  const narrowHit = await hitTarget(page, NW / 2, NH / 2);
+  ok(narrowHit === 'scene', `scene still the hit target on a narrow viewport (center=${narrowHit})`);
+
+  const yawBefore = await page.evaluate(() => window.__campus.yaw);
+  await page.mouse.move(NW / 2, NH / 2);
+  await page.mouse.down();
+  await page.mouse.move(NW / 2 + 200, NH / 2, { steps: 12 });
+  await page.mouse.up();
+  const turnedNarrow = await until(page, `Math.abs(window.__campus.yaw - (${yawBefore})) > 0.15`, { timeout: 10_000 });
+  const yawAfter = await page.evaluate(() => window.__campus.yaw);
+  ok(turnedNarrow, `drag still turns the view when narrow (yaw ${yawBefore.toFixed(3)} → ${yawAfter.toFixed(3)})`);
+
   ok(pageErrors.length === 0 && consoleErrors.length === 0, 'still no errors after the full interaction pass');
 } catch (err) {
   ok(false, `harness threw: ${err && err.message}`);
@@ -229,7 +255,8 @@ try {
     mkdirSync(join(repo, 'artifacts'), { recursive: true });
     writeFileSync(join(repo, 'artifacts', 'report.txt'),
       `browser smoke test\nbase=${base}\nviewport=${VW}x${VH}\nfps≈${fps.toFixed(1)} (software raster)\n` +
-      `spawn=${JSON.stringify(start)}\nafterWalk=${JSON.stringify(afterWalk)}\nfails=${fails}\n`);
+      `spawn=${JSON.stringify(start)}\nafterWalk=${JSON.stringify(afterWalk)}\n` +
+      `hudCatchUpFrames=${hudFrames}\nfails=${fails}\n`);
   } catch { /* rapor yazılamazsa testin sonucunu değiştirme */ }
   await browser.close();
 }
