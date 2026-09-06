@@ -6,11 +6,16 @@
  * gerçek three.js ile açar ve kullanıcının yaptığı şeyleri yapar: bekler,
  * yürür, sürükler, sıfırlar, mod değiştirir. Kanıt: artifacts/campus.png.
  *
+ * CI'da GPU yoktur; three.js SwiftShader üzerinde yazılımla çizer ve kare hızı
+ * saniyede birkaç kareye düşer. Bu yüzden test "kaç fps" diye sormaz — kare
+ * sayacının ilerlediğini ve girdinin durumu gerçekten değiştirdiğini,
+ * gerekiyorsa bekleyerek doğrular. Ölçülen fps rapora bilgi olarak yazılır.
+ *
  * Kullanım:  node tests/browser.mjs http://127.0.0.1:8080
  * Playwright depo ağacının dışına kurulur; PW_ROOT ya da NODE_PATH ile bulunur.
  */
 import { createRequire } from 'node:module';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -36,16 +41,32 @@ let fails = 0;
 const ok = (c, m) => { console.log((c ? 'PASS  ' : 'FAIL  ') + m); if (!c) fails++; };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+/** Yazılım rasterizasyonu yavaş: koşul sağlanana kadar bekle, sonra karar ver. */
+async function until(page, fn, { timeout = 45_000, poll = 500 } = {}) {
+  const t0 = Date.now();
+  for (;;) {
+    if (await page.evaluate(fn)) return true;
+    if (Date.now() - t0 > timeout) return false;
+    await sleep(poll);
+  }
+}
+
 const browser = await chromium.launch({
   args: [
     '--use-gl=angle',
     '--use-angle=swiftshader',
     '--enable-unsafe-swiftshader',
     '--ignore-gpu-blocklist',
-    '--disable-lcd-text'
+    '--disable-lcd-text',
+    '--hide-scrollbars',
+    '--disable-background-timer-throttling',
+    '--disable-backgrounding-occluded-windows',
+    '--disable-renderer-backgrounding'
   ]
 });
-const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
+// Küçük tuval = yazılım rasterizasyonunda çok daha fazla kare; sahne aynı sahne.
+const VW = 800, VH = 520;
+const page = await browser.newPage({ viewport: { width: VW, height: VH }, deviceScaleFactor: 1 });
 
 const consoleErrors = [];
 const pageErrors = [];
@@ -53,6 +74,8 @@ const failedRequests = [];
 page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
 page.on('pageerror', (e) => pageErrors.push(String(e)));
 page.on('requestfailed', (r) => failedRequests.push(`${r.url()} :: ${r.failure()?.errorText}`));
+
+let fps = 0;
 
 try {
   /* ---------- 1. Yükleme ---------- */
@@ -78,18 +101,20 @@ try {
   ok(!(await page.locator('#fallback').evaluate(e => e.classList.contains('show'))), 'WebGL fallback screen not shown');
 
   /* ---------- 3. Loader kalkıyor, döngü dönüyor ---------- */
-  await page.waitForFunction(() => document.getElementById('loader').classList.contains('done'), null, { timeout: 30_000 });
+  await page.waitForFunction(() => document.getElementById('loader').classList.contains('done'), null, { timeout: 60_000 });
   ok(true, 'loader dismissed after first compiled frame');
 
   const f0 = await page.evaluate(() => window.__campus.frames);
-  await sleep(2000);
+  await sleep(3000);
   const f1 = await page.evaluate(() => window.__campus.frames);
-  ok(f1 - f0 > 30, `render loop is live: ${f1 - f0} frames in 2 s (~${Math.round((f1 - f0) / 2)} fps)`);
+  fps = (f1 - f0) / 3;
+  // CI'da GPU yok: eşik "akıcı" değil, "canlı" olmayı ölçer.
+  ok(f1 - f0 >= 3, `render loop is live: ${f1 - f0} frames in 3 s (~${fps.toFixed(1)} fps, software raster)`);
 
   /* ---------- 4. Başlangıç kompozisyonu ---------- */
-  const start = await page.evaluate(() => ({ ...JSON.parse(JSON.stringify({
+  const start = await page.evaluate(() => ({
     x: window.__campus.x, z: window.__campus.z, yaw: window.__campus.yaw, place: window.__campus.place
-  })) }));
+  }));
   ok(Math.abs(start.z - 118) < 0.001 && Math.abs(start.x) < 0.001, `spawn at the gate (x=${start.x}, z=${start.z})`);
   ok(Math.abs(start.yaw) < 1e-9, `spawn faces the campus, not the exit (yaw=${start.yaw})`);
   ok(start.place === 'Kampüs Kapısı', `HUD names the start zone: ${start.place}`);
@@ -102,13 +127,16 @@ try {
   ok(shotA.length > 20_000, `rendered frame is a complex image (${shotA.length} B PNG, not a flat fill)`);
 
   /* ---------- 6. Yürüme ---------- */
-  await page.locator('#scene').click({ position: { x: 640, y: 700 } });
+  await page.locator('#scene').click({ position: { x: VW / 2, y: VH - 60 } });
   await page.keyboard.down('KeyW');
-  await sleep(3000);
+  // Hedef: en az 18 m ilerlemek (z 118 → ≤100), yani bölge sınırını (110) geçmek.
+  const walked = await until(page, () => window.__campus.z <= 100, { timeout: 45_000 });
   await page.keyboard.up('KeyW');
-  await sleep(300);
+  await sleep(400);
   const afterWalk = await page.evaluate(() => ({ x: window.__campus.x, z: window.__campus.z, place: window.__campus.place }));
-  ok(afterWalk.z < start.z - 10, `W walks into the campus: z ${start.z} → ${afterWalk.z.toFixed(1)}`);
+  ok(walked && afterWalk.z < start.z - 15,
+    `W walks into the campus (−Z): z ${start.z} → ${afterWalk.z.toFixed(1)}`);
+  ok(Math.abs(afterWalk.x - start.x) < 3, `walk stayed on the road (x=${afterWalk.x.toFixed(2)})`);
   ok(afterWalk.place !== start.place, `zone label followed the walk: ${start.place} → ${afterWalk.place}`);
 
   const shotB = await page.screenshot();
@@ -116,11 +144,11 @@ try {
 
   /* ---------- 7. Sürükleyerek bakma ---------- */
   const bearing0 = await page.locator('#bearing').innerText();
-  await page.mouse.move(640, 400);
+  await page.mouse.move(VW / 2, VH / 2);
   await page.mouse.down();
-  await page.mouse.move(360, 400, { steps: 14 });
+  await page.mouse.move(VW / 2 - 260, VH / 2, { steps: 14 });
   await page.mouse.up();
-  await sleep(300);
+  await until(page, () => Math.abs(window.__campus.yaw) > 0.2, { timeout: 10_000 });
   const look = await page.evaluate(() => window.__campus.yaw);
   const bearing1 = await page.locator('#bearing').innerText();
   ok(Math.abs(look) > 0.2, `drag rotated the view (yaw=${look.toFixed(3)} rad)`);
@@ -128,21 +156,21 @@ try {
 
   /* ---------- 8. Sıfırlama ---------- */
   await page.keyboard.press('KeyR');
-  await sleep(400);
+  await until(page, () => Math.abs(window.__campus.z - 118) < 0.5, { timeout: 10_000 });
   const reset = await page.evaluate(() => ({ x: window.__campus.x, z: window.__campus.z, yaw: window.__campus.yaw, place: window.__campus.place }));
   ok(Math.abs(reset.z - 118) < 0.5 && Math.abs(reset.yaw) < 1e-9, `R restores the spawn (z=${reset.z.toFixed(1)}, yaw=${reset.yaw})`);
   ok(reset.place === 'Kampüs Kapısı', 'R restores the HUD zone label');
 
   /* ---------- 9. Yörünge modu ---------- */
   await page.locator('#btn-orbit').click();
-  await sleep(600);
+  await until(page, () => window.__campus.orbit === true, { timeout: 10_000 });
   ok(await page.evaluate(() => window.__campus.orbit), 'orbit camera mode engaged by button');
   ok(await page.locator('#btn-orbit').evaluate(e => e.getAttribute('aria-pressed') === 'true'), 'orbit button reports aria-pressed=true');
   const fOrbit0 = await page.evaluate(() => window.__campus.frames);
-  await sleep(1000);
-  ok((await page.evaluate(() => window.__campus.frames)) - fOrbit0 > 15, 'render loop still live in orbit mode');
+  const orbitAlive = await until(page, `window.__campus.frames > ${fOrbit0} + 2`, { timeout: 20_000 });
+  ok(orbitAlive, 'render loop still live in orbit mode');
   await page.keyboard.press('KeyO');
-  await sleep(400);
+  await until(page, () => window.__campus.orbit === false, { timeout: 10_000 });
   ok(!(await page.evaluate(() => window.__campus.orbit)), 'O toggles back to first-person walking');
 
   /* ---------- 10. Sonda salt-okunur mu ---------- */
@@ -153,8 +181,8 @@ try {
   ok(!probeWritable, 'test probe is read-only: it cannot drive the scene');
 
   /* ---------- 11. Yeniden boyutlandırma ---------- */
-  await page.setViewportSize({ width: 820, height: 620 });
-  await sleep(700);
+  await page.setViewportSize({ width: 620, height: 460 });
+  await sleep(1200);
   const resized = await page.evaluate(() => {
     const c = document.getElementById('scene');
     return { w: c.width, h: c.height };
@@ -163,7 +191,7 @@ try {
   ok(pageErrors.length === 0 && consoleErrors.length === 0, 'still no errors after the full interaction pass');
 
   writeFileSync(join(repo, 'artifacts', 'report.txt'),
-    `browser smoke test\nbase=${base}\nfps≈${Math.round((f1 - f0) / 2)}\nspawn=${JSON.stringify(start)}\nafterWalk=${JSON.stringify(afterWalk)}\nfails=${fails}\n`);
+    `browser smoke test\nbase=${base}\nviewport=${VW}x${VH}\nfps≈${fps.toFixed(1)} (software raster)\nspawn=${JSON.stringify(start)}\nafterWalk=${JSON.stringify(afterWalk)}\nfails=${fails}\n`);
 } catch (err) {
   ok(false, `harness threw: ${err && err.message}`);
 } finally {
