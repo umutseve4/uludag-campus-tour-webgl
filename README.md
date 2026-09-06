@@ -57,7 +57,7 @@ Binası → Merkez Kütüphane → Çam Korusu → Uludağ Manzarası) gösterir
 
 İki bağımsız katman var ve ikisi de her push'ta `.github/workflows/qa.yml` ile çalışır.
 
-**1) Statik harness — `tests/qa.mjs`, bağımlılıksız, 49 kontrolün tamamı geçer.**
+**1) Statik harness** — `tests/qa.mjs`, bağımlılıksız: **50 kontrolün tamamı geçer.**
 `index.html`'in **gerçek kaynak metninden** sabitleri, `BLOCKERS` dizisini ve `blocked()`
 fonksiyonunu ayıklayıp Node'da koşturur:
 
@@ -74,6 +74,9 @@ fonksiyonunu ayıklayıp Node'da koşturur:
   adımı **0,188 m**, `dt` kelepçesindeki teorik tavan ise **0,700 m** — ikisi de 0,9 m'lik çarpışma
   payının altında;
 - **32 değişken adımlı (4–50 ms) koşu** doğrudan duvarlara sürülüyor, hiçbiri içeri geçemiyor;
+  gözlenen en büyük kare adımı burada **0,616 m**. Her koşunun başlangıç noktası, komşu bir yapının
+  hacmine düşmediği **kanıtlanana dek** dışarı itilir — aksi hâlde harness kendi kusurunu ürünün
+  kusuru sanar (bu tam olarak bir kez oldu ve ayrı bir kontrolle kalıcı olarak kapatıldı);
 - ring otobüsü [−230,0 · +116,0] m aralığında kalıyor ve iki yönde de gerçekten gidip geliyor;
 - HUD yer adları 8 farklı z konumunda doğru çözümleniyor;
 - README'nin **sayısal iddiaları** (dosya boyutu, kontrol sayısı) dosyanın kendisiyle karşılaştırılıyor.
@@ -81,9 +84,10 @@ fonksiyonunu ayıklayıp Node'da koşturur:
 **2) Gerçek tarayıcı kabulü — `tests/browser.mjs`, Chromium + WebGL.**
 CI, Playwright'ı depo ağacının dışına kurar, sayfayı yerel sunucudan açar ve gerçek kullanıcı
 hareketlerini yapar: yükleme (0 konsol hatası, 0 başarısız istek), canlı WebGL bağlamı, loader'ın
-kalkması, fps ölçümü, `W` ile yürüyüp bölge etiketinin değişmesi, sürükleyip pusulanın dönmesi,
-`R` ile başa dönüş, `O`/düğme ile yörünge modu, sondanın yazılamazlığı ve yeniden boyutlandırma.
-Kanıt olarak `artifacts/campus.png` ekran görüntüsü CI çıktısına yüklenir.
+kalkması, render döngüsünün ilerlemesi, `W` ile yürüyüp bölge etiketinin değişmesi, sürükleyip
+pusulanın dönmesi, `R` ile başa dönüş, `O`/düğme ile yörünge modu, sondanın yazılamazlığı ve
+yeniden boyutlandırma. CI koşucusunda GPU yoktur (SwiftShader), bu yüzden testler kare hızına değil
+**ilerlemeye** bakar. Kanıt olarak `artifacts/campus.png` ekran görüntüsü CI çıktısına yüklenir.
 
 ```bash
 node tests/qa.mjs        # → QA RESULT: PASS (0 failures)
@@ -93,4 +97,4 @@ node tests/browser.mjs   # → BROWSER RESULT: PASS (0 failures)  (Playwright ge
 ## Lisans
 
 MIT — `LICENSE`. Kod tümüyle prosedüreldir; üçüncü taraf model, doku veya ses dosyası içermez.
-Sahne, Görükle Yerleşkesi'nden **esinlenen** stilize bir yorumdur; ölçekli bir mimari röprodüksiyon değildir.
+Sahne, Görükle Yerleşkesi'nden **esinlenen** stilize bir yorumdur; ölçekli bir mimari reprodüksiyon değildir.
