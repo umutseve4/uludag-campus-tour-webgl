@@ -1,0 +1,36 @@
+name: qa
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Node version
+        run: node --version
+
+      - name: Single-file invariants, collision coverage and walk simulation
+        run: node tests/qa.mjs
+
+      - name: No build artefacts or dependencies committed
+        run: |
+          test ! -d node_modules
+          test ! -f package-lock.json
+          echo "tree is dependency-free"
