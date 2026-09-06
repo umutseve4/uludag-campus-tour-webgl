@@ -73,14 +73,30 @@ const MARGIN = (() => {
 })();
 ok(MARGIN > 0.5 && MARGIN < 1.5, `collision margin measured from blocked() itself: ${MARGIN.toFixed(3)} m`);
 
-// Hangi engelin içindeyiz? (temas atfı için; blocked() ile aynı geometri)
+// Hangi engelin içindeyiz? Payı YENİDEN YAZMA: ürünün kendi blocked() metnini
+// tek elemanlı bir BLOCKERS dizisiyle yeniden bağla. Ölçülen MARGIN kılpayı
+// (0.9000000000000021) gerçek 0.9'dan büyük olduğu için, sınırın tam üstündeki
+// bir temas noktası komşu kutuya yazılıyordu; bu, üründe değil harness'ta hataydı.
+const makeBlocked = eval('((BLOCKERS) => { ' + blockedSrc.replace('function blocked', 'function _b') + ' return _b; })');
+const singleBlocked = BLOCKERS.map(b => makeBlocked([b]));
 const blockerAt = (x, z) => {
-  for (let i = 0; i < BLOCKERS.length; i++) {
-    const b = BLOCKERS[i];
-    if (Math.abs(x - b.x) < b.w / 2 + MARGIN && Math.abs(z - b.z) < b.d / 2 + MARGIN) return i;
-  }
+  for (let i = 0; i < singleBlocked.length; i++) if (singleBlocked[i](x, z)) return i;
   return -1;
 };
+{
+  // Atıf ile çarpışma birebir aynı geometriyi görmeli: ayrışırlarsa test yalan söyler.
+  let rng = 20260906, mismatch = 0;
+  const rnd = () => (rng = (rng * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (let k = 0; k < 200000; k++) {
+    const x = -150 + rnd() * 300, z = -260 + rnd() * 410;
+    if (blocked(x, z) !== (blockerAt(x, z) >= 0)) mismatch++;
+  }
+  for (const b of BLOCKERS) for (const s of [-1, 1]) for (const e of [0, 1e-12, -1e-12]) {
+    const x = b.x + s * (b.w / 2 + MARGIN) + e, z = b.z;
+    if (blocked(x, z) !== (blockerAt(x, z) >= 0)) mismatch++;
+  }
+  ok(mismatch === 0, `contact attribution agrees with blocked() everywhere (200k random + 48 boundary points, ${mismatch} mismatches)`);
+}
 
 // Sahnedeki gerçek yapı ayak izleri (dünya koordinatı, elle türetildi)
 const FOOTPRINTS = [
@@ -261,8 +277,9 @@ ok(worstStep < 0.9, `observed max per-frame step ${worstStep.toFixed(3)} m < ${M
       }
     }
   }
-  ok(tested + covered + disconnected === BLOCKERS.length * 4,
-     `every wall face classified exactly once: ${tested} sprinted + ${covered} geometrically covered + ${disconnected} disconnected from spawn = ${BLOCKERS.length * 4} — ${classes.join(', ')}`);
+  ok(tested === 30 && covered === 2 && disconnected === 0 &&
+     tested + covered + disconnected === BLOCKERS.length * 4,
+     `wall faces classify to the pinned breakdown 30/2/0: ${tested} sprinted + ${covered} geometrically covered + ${disconnected} disconnected from spawn = ${BLOCKERS.length * 4} — ${classes.join(', ')}`);
   ok(misattributed.length === 0,
      `each sprinted face was stopped by the wall it aimed at (${tested - misattributed.length}/${tested}${misattributed.length ? ' — ' + misattributed.join(', ') : ''})`);
   ok(breaches === 0,
