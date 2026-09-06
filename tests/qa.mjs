@@ -1,15 +1,20 @@
 // Bağımsız QA: index.html içindeki gerçek kaynak metinden mantık parçalarını
 // çıkarıp Node'da koşturur. three.js gerekmez (yalnız saf matematik test edilir).
-import { readFileSync, writeFileSync, rmSync } from 'node:fs';
+// Ayrıca README'nin sayısal iddialarını dosyanın kendisiyle karşılaştırır:
+// belge ile kod birbirinden ayrılırsa CI kırmızıya döner.
+import { readFileSync, writeFileSync, rmSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const htmlUrl = new URL('../index.html', import.meta.url);
+const html = readFileSync(htmlUrl, 'utf8');
 const src = html.match(/<script type="module">([\s\S]*?)<\/script>/)[1];
+const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+const licence = readFileSync(new URL('../LICENSE', import.meta.url), 'utf8');
 
-let fails = 0;
-const ok = (c, m) => { console.log((c ? 'PASS  ' : 'FAIL  ') + m); if (!c) fails++; };
+let fails = 0, checks = 0;
+const ok = (c, m) => { checks++; console.log((c ? 'PASS  ' : 'FAIL  ') + m); if (!c) fails++; };
 
 /* ---------- 0. Modül sözdizimi ---------- */
 {
@@ -32,6 +37,19 @@ ok(html.includes('Bursa Uludağ Üniversitesi Kampüs Turu'), 'top overlay title
 ok(/kbd>W<\/kbd>/.test(html) && /Sürükle/.test(html), 'bottom instruction overlay present');
 ok(html.includes('prefers-reduced-motion'), 'reduced-motion path present');
 ok(html.includes('webglcontextlost'), 'context-loss handling present');
+ok(html.includes('Build by Opus 5.'), 'visible build credit "Build by Opus 5." present');
+ok(/const START = \{ x: 0, z: 118, yaw: 0,/.test(src),
+   'spawn faces the campus (START.yaw = 0), not the exit gate');
+ok(/window\.__campus = Object\.freeze\(\{[\s\S]*get frames\(\)/.test(src) && !/window\.__campus[\s\S]{0,600}set /.test(src),
+   'test probe is a frozen, getter-only view (cannot drive the scene)');
+ok(/MIT License/i.test(licence) && /AS IS/.test(licence), 'LICENSE is a complete MIT text');
+{
+  const keysShown = ['<kbd>W</kbd>', '<kbd>A</kbd>', '<kbd>S</kbd>', '<kbd>D</kbd>',
+                     '<kbd>↑</kbd>', '<kbd>↓</kbd>', '<kbd>←</kbd>', '<kbd>→</kbd>',
+                     '<kbd>Sürükle</kbd>', '<kbd>Shift</kbd>', '<kbd>R</kbd>'];
+  const missing = keysShown.filter(k => !html.includes(k));
+  ok(missing.length === 0, `instruction overlay documents every bound key (missing: ${missing.join(', ') || 'none'})`);
+}
 
 /* ---------- 2. Girdi eşlemesi ---------- */
 for (const k of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
@@ -80,7 +98,7 @@ ok(WALK > 0 && RUN > WALK, `speeds sane: walk=${WALK} run=${RUN}`);
 
 const CAMPUS_Z = eval('(' + src.match(/const CAMPUS_Z\s+= (\[[^\]]*\])/)[1] + ')');
 function simulate(seed) {
-  let x = 0, z = 118, vx = 0, vz = 0, yaw = Math.PI, worst = 0;
+  let x = 0, z = 118, vx = 0, vz = 0, yaw = 0, worst = 0;
   let rng = seed;
   const rand = () => (rng = (rng * 1664525 + 1013904223) % 4294967296) / 4294967296;
   for (let step = 0; step < 6000; step++) {
@@ -107,7 +125,33 @@ function simulate(seed) {
 let insideCount = 0, worstStep = 0;
 for (let s = 1; s <= 25; s++) { const r = simulate(s * 7919); if (r.inside) insideCount++; worstStep = Math.max(worstStep, r.worst); }
 ok(insideCount === 0, `25 randomized 100s walks never end inside a building (${insideCount} violations)`);
-ok(worstStep < 0.9, `max per-frame step ${worstStep.toFixed(3)} m < 0.9 m collision margin (no tunnelling)`);
+ok(worstStep < 0.9, `observed max per-frame step ${worstStep.toFixed(3)} m < 0.9 m collision margin (theoretical bound ${(RUN * 0.05).toFixed(3)} m at the dt clamp)`);
+
+// Kasıtlı duvara koşu: değişken dt ile, dört yönden, her engelin merkezine doğru.
+{
+  let breaches = 0, worstVar = 0;
+  let rng = 424242;
+  const rand = () => (rng = (rng * 1103515245 + 12345) % 2147483648) / 2147483648;
+  for (const b of BLOCKERS) {
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      let x = b.x + dx * 45, z = b.z + dz * 45, vx = 0, vz = 0;
+      for (let step = 0; step < 1200; step++) {
+        const dt = Math.min(0.05, 1 / 240 + rand() * 0.06);   // 4 ms … 50 ms, clamp dahil
+        const ax = -dx, az = -dz;
+        vx += ax * RUN * ACCEL * dt; vz += az * RUN * ACCEL * dt;
+        const damp = Math.max(0, 1 - FRICTION * dt); vx *= damp; vz *= damp;
+        const vlen = Math.hypot(vx, vz);
+        if (vlen > RUN) { vx = (vx / vlen) * RUN; vz = (vz / vlen) * RUN; }
+        worstVar = Math.max(worstVar, Math.hypot(vx, vz) * dt);
+        const nx = x + vx * dt, nz = z + vz * dt;
+        if (!blocked(nx, z)) x = nx; else vx = 0;
+        if (!blocked(x, nz)) z = nz; else vz = 0;
+        if (blocked(x, z)) { breaches++; break; }
+      }
+    }
+  }
+  ok(breaches === 0, `32 variable-timestep sprints straight at the walls never breach one (${breaches} breaches, worst step ${worstVar.toFixed(3)} m)`);
+}
 
 /* ---------- 5. Ring otobüsü döngüsü ---------- */
 let bz = 60, dir = -1, minZ = 1e9, maxZ = -1e9;
@@ -127,5 +171,20 @@ for (const z of [140, 118, 60, 0, -40, -90, -160, -259]) {
   ok(!!p && typeof p.name === 'string', `place resolved at z=${z} → ${p && p.name}`);
 }
 
-console.log(fails === 0 ? '\nQA RESULT: PASS (0 failures)' : `\nQA RESULT: FAIL (${fails} failures)`);
+/* ---------- 7. README iddiaları dosyayla uyuşuyor mu ---------- */
+{
+  const realBytes = statSync(htmlUrl).size;
+  const m = readme.match(/\((\d[\d.]*)\s*bayt\)/);
+  const claimed = m ? parseInt(m[1].replace(/\./g, ''), 10) : NaN;
+  ok(claimed === realBytes, `README byte claim matches the file (claimed ${claimed}, actual ${realBytes})`);
+}
+{
+  const m = readme.match(/\*\*(\d+)\s*kontrol/);
+  const declared = m ? parseInt(m[1], 10) : NaN;
+  // Bu satırın kendisi de bir kontrol: checks henüz artmadı, bu yüzden +1.
+  ok(declared === checks + 1, `README check count matches the harness (declared ${declared}, actual ${checks + 1})`);
+}
+
+console.log(`\n${checks} checks executed`);
+console.log(fails === 0 ? `QA RESULT: PASS (0 failures)` : `QA RESULT: FAIL (${fails} failures)`);
 process.exit(fails === 0 ? 0 : 1);
