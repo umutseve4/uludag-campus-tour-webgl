@@ -7,6 +7,11 @@
 </p>
 
 <p align="center">
+  <a href="https://umutseve4.github.io/uludag-campus-tour-webgl/"><b>▶ Turu tarayıcıda başlat</b></a>
+  &nbsp;·&nbsp; kurulum yok, indirme yok
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/yerel%20ba%C4%9F%C4%B1ml%C4%B1l%C4%B1k-0-FF4D4F?style=flat-square" alt="Sıfır yerel bağımlılık">
   <img src="https://img.shields.io/badge/a%C4%9Fa%C3%A7-~700%20%C2%B7%204%20draw%20call-FF4D4F?style=flat-square" alt="700 ağaç, 4 draw call">
   <img src="https://img.shields.io/badge/duvar%20ko%C5%9Fusu-30%20dik%20%2B%2060%20%C3%A7apraz-FF4D4F?style=flat-square" alt="90 duvar koşusu">
@@ -30,6 +35,9 @@ Sağ üstteki panel pusula yönünü ve bulunduğunuz bölgeyi (Kampüs Kapısı
 Binası → Merkez Kütüphane → Çam Korusu → Uludağ Manzarası) gösterir.
 
 ## Çalıştırma
+
+Kurulum istemiyorsanız [canlı sürüm](https://umutseve4.github.io/uludag-campus-tour-webgl/) hazır.
+Yerelde çalıştırmak için:
 
 ```bash
 python -m http.server 8000   # sonra http://localhost:8000
