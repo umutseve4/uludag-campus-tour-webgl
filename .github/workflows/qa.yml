@@ -14,7 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  qa:
+  static:
+    name: static invariants + walk simulation
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -23,13 +24,76 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Node version
-        run: node --version
+      - name: Use pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.x'
 
-      - name: Single-file invariants, collision coverage and walk simulation
+      - name: Single-file invariants, README claim audit, collision coverage, walk simulation
         run: node tests/qa.mjs
 
       - name: No build artefacts or dependencies committed
+        run: |
+          test ! -d node_modules
+          test ! -f package-lock.json
+          test ! -d dist
+          test -f index.html && test -f LICENSE && test -f README.md
+          echo "tree is dependency-free"
+
+  browser:
+    name: real chromium smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Use pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.x'
+
+      - name: CDN modules are reachable and pinned
+        run: |
+          curl -sfSL -o /dev/null -w 'three.module.js %{http_code} %{size_download}B\n' \
+            https://unpkg.com/three@0.169.0/build/three.module.js
+          curl -sfSL -o /dev/null -w 'OrbitControls.js %{http_code} %{size_download}B\n' \
+            https://unpkg.com/three@0.169.0/examples/jsm/controls/OrbitControls.js
+
+      # Playwright repo ağacının dışına, geçici bir dizine kurulur:
+      # depoda node_modules oluşmaz, tek dosya sözleşmesi bozulmaz.
+      - name: Install Playwright (outside the repo tree)
+        run: |
+          mkdir -p "$RUNNER_TEMP/pw"
+          cd "$RUNNER_TEMP/pw"
+          npm init -y >/dev/null
+          npm i --no-audit --no-fund playwright@1.49.1
+          npx playwright install --with-deps chromium
+          echo "NODE_PATH=$RUNNER_TEMP/pw/node_modules" >> "$GITHUB_ENV"
+
+      - name: Serve the single file
+        run: |
+          python3 -m http.server 8080 --bind 127.0.0.1 >/dev/null 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8080/index.html >/dev/null && break
+            sleep 1
+          done
+          curl -sf -o /dev/null http://127.0.0.1:8080/index.html
+
+      - name: Browser smoke test (WebGL, input, composition)
+        run: node tests/browser.mjs http://127.0.0.1:8080
+
+      - name: Upload rendered screenshot
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: campus-screenshot
+          path: artifacts/campus.png
+          if-no-files-found: warn
+
+      - name: Repo tree is still dependency-free
         run: |
           test ! -d node_modules
           test ! -f package-lock.json
