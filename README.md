@@ -58,7 +58,7 @@ Binası → Merkez Kütüphane → Çam Korusu → Uludağ Manzarası) gösterir
 
 İki bağımsız katman var ve ikisi de her push'ta `.github/workflows/qa.yml` ile çalışır.
 
-**1) Statik harness** — `tests/qa.mjs`, bağımlılıksız: **53 kontrolün tamamı geçer.**
+**1) Statik harness** — `tests/qa.mjs`, bağımlılıksız: **54 kontrolün tamamı geçer.**
 `index.html`'in **gerçek kaynak metninden** sabitleri, `BLOCKERS` dizisini ve `blocked()`
 fonksiyonunu ayıklayıp Node'da koşturur:
 
@@ -75,15 +75,18 @@ fonksiyonunu ayıklayıp Node'da koşturur:
 - **25 ayrı rastgele 100 saniyelik yürüyüş** hiçbir binanın içinde bitmiyor; gözlenen en büyük kare
   adımı **0,188 m**, `dt` kelepçesindeki teorik tavan ise **0,700 m** — ikisi de 0,9 m'lik çarpışma
   payının altında;
-- **değişken adımlı (4–50 ms) duvara koşu.** 8 engel kutusunun 32 yüzeyi tek tek ele alınır. Her
-  koşu, hedef yüzeyin önündeki **doğrulanmış boş koridorun** ucundan başlar ve her çarpışma hangi
-  engele ait olduğuyla kaydedilir. Sonuç üç ayrı iddia olarak tutulur: **erişilebilir 19 yüzeyin
-  19'unda** koşu tam hedeflediği duvara çarpıyor, **kalan 13 yüzeyin** her birinin önünü komşu bir
-  engelin kapattığı ayrıca kanıtlanıyor (koşulacak koridor 0,5–1,0 m; perdesiz kalan olursa CI
-  kırmızıya döner) ve muhasebe kapanıyor: 19 + 13 = 32. Hiçbir koşu duvarı delip geçmiyor.
-  (Bu üç tuzağın üçü de gerçekten yaşandı: önce başlangıç noktası komşu binanın içine düştü, sonra
-  bağımsız denetim "başka bir duvara çarpıp bedava geçen koşu" riskini gösterdi, en sonunda CI
-  13 yüzeyin hiç erişilebilir olmadığını ortaya çıkardı. Üçü de kalıcı kontrole dönüştürüldü.)
+- **duvar testi konfigürasyon uzayında yapılır, kaçamak bırakmadan.** Başlangıç noktasından
+  0,5 m'lik ızgarada flood-fill ile gerçekten yürünebilir bileşen çıkarılır. 8 engel kutusunun
+  32 duvar yüzeyinin her birinin dış ε katmanı 41 noktada örneklenir; **açık ve başlangıca bağlı
+  tek bir nokta bulunan her yüz mutlaka koşulur** (koşu koridoru 5 m'den kısaysa duvara tam hızla
+  yapışarak). Her yüz tam olarak üç sınıftan birine düşer — *koşuldu* / *geometrik olarak tümüyle
+  kapalı* / *başlangıçtan kopuk* — ve toplamları 32'ye kapanır; sınıflandırılamayan yüz kalırsa CI
+  kırmızıya döner. Koşulan her yüzde durduran engelin **hedeflenen engel** olduğu ayrıca doğrulanır,
+  ve her yüz için iki **çapraz** (±0,5 rad) yaklaşım daha koşulur. Hiçbir koşu duvarı delip geçmiyor.
+  (Bu tuzakların hepsi gerçekten yaşandı: önce başlangıç noktası komşu binanın içine düştü, sonra
+  "başka duvara çarpıp bedava geçen koşu" riski çıktı, sonra CI 13 yüzeyin normal doğrultuda hiç
+  koridoru olmadığını gösterdi, en sonunda bağımsız denetim "koridor yok, atla" kaçamağının kanıt
+  değil varsayım olduğunu söyledi. Dördü de kalıcı kontrole dönüştürüldü.)
 - ring otobüsü [−230,0 · +116,0] m aralığında kalıyor ve iki yönde de gerçekten gidip geliyor;
 - HUD yer adları 8 farklı z konumunda doğru çözümleniyor;
 - README'nin **sayısal iddiaları** (dosya boyutu, kontrol sayısı) dosyanın kendisiyle karşılaştırılıyor.
@@ -111,10 +114,10 @@ Abartmamak için, testlerin **kapsamadığı** şeyler:
   donanımdaki deneyimin ölçüsü değildir.
 - **Tarayıcı çeşitliliği:** yalnız Linux/Chromium + SwiftShader doğrulanır; Firefox, Safari/WebKit
   ve mobil GPU'lar kapsam dışıdır.
-- **Örnekleme ≠ ispat:** ayak izi ızgaraları, 25 rastgele yürüyüş ve 19 koşu güçlü ampirik
-  kanıttır; sürekli uzayda tünelleme olmadığının matematiksel ispatı değildir.
-- **Erişilemeyen yüzeyler:** 13 duvar yüzeyi doğrudan sınanmaz; yalnızca önlerinin başka bir
-  engelle kapalı olduğu kanıtlanır.
+- **Örnekleme ≠ ispat:** ayak izi ızgaraları, ε katmanı örneklemesi, 0,5 m'lik erişilebilirlik
+  ızgarası ve rastgele yürüyüşler güçlü ampirik kanıttır; sürekli uzayda tünelleme olmadığının
+  matematiksel ispatı değildir. Özellikle "kapalı" ve "kopuk" sınıfları ızgara/örnek çözünürlüğü
+  kadar kesindir.
 - **Mimari doğruluk:** sahne Görükle Yerleşkesi'nden esinlenir; ölçülü/haritalı bir röprodüksiyon
   değildir ve hiçbir test binaları gerçek konumlarıyla karşılaştırmaz.
 - **Görsel kalite:** ekran görüntüsü kanıt olarak yüklenir, ancak bir referans görüntüyle
