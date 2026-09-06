@@ -11,6 +11,11 @@
  * sayacının ilerlediğini ve girdinin durumu gerçekten değiştirdiğini,
  * gerekiyorsa bekleyerek doğrular. Ölçülen fps rapora bilgi olarak yazılır.
  *
+ * Tuvale tıklarken locator.click() KULLANILMAZ: Playwright'ın hit-target
+ * denetimi, tuvalin üstündeki HUD/yönerge katmanlarına takılır ve 30 sn bekler.
+ * Tuval ham fare olaylarıyla sürülür; katmanların nereyi kapattığı ayrı bir
+ * kontrolle raporlanır.
+ *
  * Kullanım:  node tests/browser.mjs http://127.0.0.1:8080
  * Playwright depo ağacının dışına kurulur; PW_ROOT ya da NODE_PATH ile bulunur.
  */
@@ -40,6 +45,12 @@ const { chromium } = loadPlaywright();
 let fails = 0;
 const ok = (c, m) => { console.log((c ? 'PASS  ' : 'FAIL  ') + m); if (!c) fails++; };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+/** Bir adım patlarsa tüm kanıtı kaybetme: o adımı FAIL yaz, diğerlerine devam et. */
+async function step(label, fn) {
+  try { return await fn(); }
+  catch (err) { ok(false, `${label} threw: ${err && err.message}`); return null; }
+}
 
 /** Yazılım rasterizasyonu yavaş: koşul sağlanana kadar bekle, sonra karar ver. */
 async function until(page, fn, { timeout = 45_000, poll = 500 } = {}) {
@@ -76,6 +87,7 @@ page.on('pageerror', (e) => pageErrors.push(String(e)));
 page.on('requestfailed', (r) => failedRequests.push(`${r.url()} :: ${r.failure()?.errorText}`));
 
 let fps = 0;
+let start = null, afterWalk = null;
 
 try {
   /* ---------- 1. Yükleme ---------- */
@@ -112,7 +124,7 @@ try {
   ok(f1 - f0 >= 3, `render loop is live: ${f1 - f0} frames in 3 s (~${fps.toFixed(1)} fps, software raster)`);
 
   /* ---------- 4. Başlangıç kompozisyonu ---------- */
-  const start = await page.evaluate(() => ({
+  start = await page.evaluate(() => ({
     x: window.__campus.x, z: window.__campus.z, yaw: window.__campus.yaw, place: window.__campus.place
   }));
   ok(Math.abs(start.z - 118) < 0.001 && Math.abs(start.x) < 0.001, `spawn at the gate (x=${start.x}, z=${start.z})`);
@@ -121,19 +133,32 @@ try {
   ok((await page.title()).includes('Bursa Uludağ Üniversitesi Kampüs Turu'), 'document title present');
   ok((await page.locator('h1').innerText()).trim() === 'Bursa Uludağ Üniversitesi Kampüs Turu', 'top overlay title rendered');
 
-  /* ---------- 5. Sahne gerçekten çiziliyor mu (piksel kanıtı) ---------- */
+  /* ---------- 5. Katmanlar sahnenin ortasını kapatmıyor ---------- */
+  const hit = await page.evaluate(([w, h]) => {
+    const at = (x, y) => {
+      const el = document.elementFromPoint(x, y);
+      return el ? (el.id || el.tagName.toLowerCase()) : 'none';
+    };
+    return { center: at(w / 2, h / 2), low: at(w / 2, h - 60), upper: at(w / 2, h * 0.35) };
+  }, [VW, VH]);
+  ok(hit.center === 'scene' && hit.upper === 'scene',
+     `overlays leave the scene interactive (center=${hit.center}, upper=${hit.upper}, bottom bar=${hit.low})`);
+
+  /* ---------- 6. Sahne gerçekten çiziliyor mu (piksel kanıtı) ---------- */
   mkdirSync(join(repo, 'artifacts'), { recursive: true });
   const shotA = await page.screenshot({ path: join(repo, 'artifacts', 'campus.png') });
   ok(shotA.length > 20_000, `rendered frame is a complex image (${shotA.length} B PNG, not a flat fill)`);
 
-  /* ---------- 6. Yürüme ---------- */
-  await page.locator('#scene').click({ position: { x: VW / 2, y: VH - 60 } });
+  /* ---------- 7. Yürüme ---------- */
+  // Ham fare tıklaması: hit-target denetimi yok, kullanıcı jesti aynı.
+  await page.mouse.click(VW / 2, VH / 2);
+  await page.evaluate(() => document.getElementById('scene').focus());
   await page.keyboard.down('KeyW');
   // Hedef: en az 18 m ilerlemek (z 118 → ≤100), yani bölge sınırını (110) geçmek.
   const walked = await until(page, () => window.__campus.z <= 100, { timeout: 45_000 });
   await page.keyboard.up('KeyW');
   await sleep(400);
-  const afterWalk = await page.evaluate(() => ({ x: window.__campus.x, z: window.__campus.z, place: window.__campus.place }));
+  afterWalk = await page.evaluate(() => ({ x: window.__campus.x, z: window.__campus.z, place: window.__campus.place }));
   ok(walked && afterWalk.z < start.z - 15,
     `W walks into the campus (−Z): z ${start.z} → ${afterWalk.z.toFixed(1)}`);
   ok(Math.abs(afterWalk.x - start.x) < 3, `walk stayed on the road (x=${afterWalk.x.toFixed(2)})`);
@@ -142,7 +167,7 @@ try {
   const shotB = await page.screenshot();
   ok(Buffer.compare(shotA, shotB) !== 0, 'viewport changed after walking (frame differs from spawn frame)');
 
-  /* ---------- 7. Sürükleyerek bakma ---------- */
+  /* ---------- 8. Sürükleyerek bakma ---------- */
   const bearing0 = await page.locator('#bearing').innerText();
   await page.mouse.move(VW / 2, VH / 2);
   await page.mouse.down();
@@ -154,33 +179,33 @@ try {
   ok(Math.abs(look) > 0.2, `drag rotated the view (yaw=${look.toFixed(3)} rad)`);
   ok(bearing0 !== bearing1, `compass followed the look: ${bearing0} → ${bearing1}`);
 
-  /* ---------- 8. Sıfırlama ---------- */
+  /* ---------- 9. Sıfırlama ---------- */
   await page.keyboard.press('KeyR');
   await until(page, () => Math.abs(window.__campus.z - 118) < 0.5, { timeout: 10_000 });
   const reset = await page.evaluate(() => ({ x: window.__campus.x, z: window.__campus.z, yaw: window.__campus.yaw, place: window.__campus.place }));
   ok(Math.abs(reset.z - 118) < 0.5 && Math.abs(reset.yaw) < 1e-9, `R restores the spawn (z=${reset.z.toFixed(1)}, yaw=${reset.yaw})`);
   ok(reset.place === 'Kampüs Kapısı', 'R restores the HUD zone label');
 
-  /* ---------- 9. Yörünge modu ---------- */
-  await page.locator('#btn-orbit').click();
-  await until(page, () => window.__campus.orbit === true, { timeout: 10_000 });
-  ok(await page.evaluate(() => window.__campus.orbit), 'orbit camera mode engaged by button');
+  /* ---------- 10. Yörünge modu ---------- */
+  await step('orbit button click', () => page.locator('#btn-orbit').click({ timeout: 15_000 }));
+  const orbitOn = await until(page, () => window.__campus.orbit === true, { timeout: 15_000 });
+  ok(orbitOn, 'orbit camera mode engaged by button');
   ok(await page.locator('#btn-orbit').evaluate(e => e.getAttribute('aria-pressed') === 'true'), 'orbit button reports aria-pressed=true');
   const fOrbit0 = await page.evaluate(() => window.__campus.frames);
   const orbitAlive = await until(page, `window.__campus.frames > ${fOrbit0} + 2`, { timeout: 20_000 });
   ok(orbitAlive, 'render loop still live in orbit mode');
   await page.keyboard.press('KeyO');
-  await until(page, () => window.__campus.orbit === false, { timeout: 10_000 });
-  ok(!(await page.evaluate(() => window.__campus.orbit)), 'O toggles back to first-person walking');
+  const orbitOff = await until(page, () => window.__campus.orbit === false, { timeout: 10_000 });
+  ok(orbitOff, 'O toggles back to first-person walking');
 
-  /* ---------- 10. Sonda salt-okunur mu ---------- */
+  /* ---------- 11. Sonda salt-okunur mu ---------- */
   const probeWritable = await page.evaluate(() => {
     try { window.__campus.z = -9999; } catch { /* frozen: beklenen */ }
     return window.__campus.z === -9999;
   });
   ok(!probeWritable, 'test probe is read-only: it cannot drive the scene');
 
-  /* ---------- 11. Yeniden boyutlandırma ---------- */
+  /* ---------- 12. Yeniden boyutlandırma ---------- */
   await page.setViewportSize({ width: 620, height: 460 });
   await sleep(1200);
   const resized = await page.evaluate(() => {
@@ -189,12 +214,15 @@ try {
   });
   ok(resized.w > 0 && resized.h > 0 && resized.w !== glInfo.w, `resize handled: ${glInfo.w}×${glInfo.h} → ${resized.w}×${resized.h}`);
   ok(pageErrors.length === 0 && consoleErrors.length === 0, 'still no errors after the full interaction pass');
-
-  writeFileSync(join(repo, 'artifacts', 'report.txt'),
-    `browser smoke test\nbase=${base}\nviewport=${VW}x${VH}\nfps≈${fps.toFixed(1)} (software raster)\nspawn=${JSON.stringify(start)}\nafterWalk=${JSON.stringify(afterWalk)}\nfails=${fails}\n`);
 } catch (err) {
   ok(false, `harness threw: ${err && err.message}`);
 } finally {
+  try {
+    mkdirSync(join(repo, 'artifacts'), { recursive: true });
+    writeFileSync(join(repo, 'artifacts', 'report.txt'),
+      `browser smoke test\nbase=${base}\nviewport=${VW}x${VH}\nfps≈${fps.toFixed(1)} (software raster)\n` +
+      `spawn=${JSON.stringify(start)}\nafterWalk=${JSON.stringify(afterWalk)}\nfails=${fails}\n`);
+  } catch { /* rapor yazılamazsa testin sonucunu değiştirme */ }
   await browser.close();
 }
 
