@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Bursa Uludağ Üniversitesi Kampüs Turu — 3B Yürüyüş</title>
+<meta name="description" content="Bursa Uludağ Üniversitesi Görükle Kampüsü'nde tek dosyalık, bağımlılıksız bir Three.js yürüyüş deneyimi. Build by Opus 5." />
+<meta name="color-scheme" content="light" />
+<style>
+  :root{
+    --ink:#0d1b12;
+    --paper:#f6f8f4;
+    --accent:#1f7a4d;
+    --accent-2:#0f4c81;
+    --shadow:0 10px 30px rgba(9,25,17,.18);
+    --radius:14px;
+    --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:#9fd3ff; color:var(--ink); font-family:var(--font);
+    overflow:hidden; -webkit-font-smoothing:antialiased;
+  }
+  #scene{position:fixed; inset:0; display:block; width:100%; height:100%; touch-action:none; cursor:grab;}
+  #scene:active{cursor:grabbing}
+  #scene:focus-visible{outline:3px solid #fff; outline-offset:-3px}
+
+  .hud{position:fixed; left:0; right:0; pointer-events:none; z-index:5}
+  .hud > *{pointer-events:auto}
+
+  /* ---------- Top bar ---------- */
+  #topbar{
+    top:0; display:flex; justify-content:center; padding:16px clamp(12px,3vw,28px);
+  }
+  .title-card{
+    display:flex; align-items:center; gap:14px;
+    background:rgba(246,248,244,.82); backdrop-filter:blur(14px) saturate(1.2);
+    -webkit-backdrop-filter:blur(14px) saturate(1.2);
+    border:1px solid rgba(255,255,255,.6); border-radius:var(--radius);
+    box-shadow:var(--shadow); padding:10px 18px; max-width:min(94vw,760px);
+  }
+  .crest{
+    width:34px;height:34px;flex:0 0 34px;border-radius:50%;
+    background:
+      radial-gradient(circle at 50% 34%, #fff 0 22%, transparent 23%),
+      conic-gradient(from 210deg, var(--accent) 0 55%, var(--accent-2) 55% 100%);
+    box-shadow:inset 0 0 0 2px rgba(255,255,255,.75);
+  }
+  .title-card h1{
+    margin:0; font-size:clamp(15px,2.1vw,21px); font-weight:700; letter-spacing:.2px; line-height:1.15;
+  }
+  .title-card p{margin:2px 0 0; font-size:clamp(11px,1.4vw,12.5px); opacity:.72; letter-spacing:.35px; text-transform:uppercase}
+
+  /* ---------- Bottom bar ---------- */
+  #bottombar{
+    bottom:0; display:flex; justify-content:center; padding:0 clamp(12px,3vw,28px) max(16px, env(safe-area-inset-bottom));
+  }
+  .help{
+    display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; justify-content:center;
+    background:rgba(13,27,18,.72); color:#eef5ef; backdrop-filter:blur(12px);
+    -webkit-backdrop-filter:blur(12px);
+    border-radius:var(--radius); box-shadow:var(--shadow); padding:10px 16px; font-size:13px;
+    max-width:min(96vw,900px);
+  }
+  .help span{display:inline-flex; align-items:center; gap:7px; white-space:nowrap}
+  kbd{
+    font:600 11px/1 var(--font); background:#f6f8f4; color:#0d1b12; border-radius:6px;
+    padding:5px 7px; border:1px solid rgba(0,0,0,.18); box-shadow:0 1px 0 rgba(0,0,0,.3);
+  }
+  .help button{
+    font:inherit; font-weight:600; color:#0d1b12; background:#eaf3ec; border:0; border-radius:9px;
+    padding:7px 12px; cursor:pointer;
+  }
+  .help button:hover{background:#fff}
+  .help button[aria-pressed="true"]{background:var(--accent); color:#fff}
+
+  /* ---------- Compass / status ---------- */
+  #status{
+    position:fixed; right:clamp(12px,3vw,28px); top:96px; z-index:5;
+    background:rgba(246,248,244,.8); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+    border-radius:12px; box-shadow:var(--shadow); padding:10px 12px; font-size:12px; min-width:150px;
+    border:1px solid rgba(255,255,255,.6);
+  }
+  #status b{display:block; font-size:11px; text-transform:uppercase; letter-spacing:.6px; opacity:.6; font-weight:700}
+  #status .val{font-variant-numeric:tabular-nums; font-weight:700; font-size:14px}
+  #place{margin-top:6px; color:var(--accent); font-weight:700}
+
+  /* ---------- Loader ---------- */
+  #loader{
+    position:fixed; inset:0; z-index:20; display:grid; place-items:center; text-align:center;
+    background:linear-gradient(180deg,#bfe4ff 0%,#e9f4ea 60%,#dfeedd 100%); color:#0d1b12;
+    transition:opacity .6s ease, visibility .6s ease;
+  }
+  #loader.done{opacity:0; visibility:hidden}
+  #loader .box{max-width:min(90vw,460px); padding:24px}
+  #loader h2{margin:14px 0 6px; font-size:20px}
+  #loader p{margin:0; font-size:13px; opacity:.75; line-height:1.6}
+  .bar{margin:18px auto 0; width:220px; height:5px; border-radius:99px; background:rgba(13,27,18,.14); overflow:hidden}
+  .bar i{display:block; height:100%; width:35%; border-radius:99px; background:var(--accent); animation:slide 1.15s ease-in-out infinite}
+  @keyframes slide{0%{transform:translateX(-110%)}100%{transform:translateX(330%)}}
+
+  #fallback{
+    position:fixed; inset:0; z-index:30; display:none; place-items:center; padding:24px; text-align:center;
+    background:#0d1b12; color:#f6f8f4;
+  }
+  #fallback.show{display:grid}
+  #fallback a{color:#8fe0b4}
+
+  @media (max-width:640px){
+    #status{display:none}
+    .help{font-size:12px; gap:6px 10px; padding:9px 12px}
+  }
+  @media (prefers-reduced-motion: reduce){
+    .bar i{animation:none; width:100%}
+    #loader{transition:none}
+  }
+</style>
+</head>
+<body>
+
+<canvas id="scene" tabindex="0" role="img"
+        aria-label="Bursa Uludağ Üniversitesi Görükle Kampüsü'nde üç boyutlu yürüyüş sahnesi: çam ağaçlı geniş kampüs yolu, fakülte binası, merkez kütüphane, ring otobüsü ve uzakta karlı Uludağ zirvesi."></canvas>
+
+<div class="hud" id="topbar">
+  <div class="title-card">
+    <div class="crest" aria-hidden="true"></div>
+    <div>
+      <h1>Bursa Uludağ Üniversitesi Kampüs Turu</h1>
+      <p>Görükle Yerleşkesi · Sanal Yürüyüş</p>
+    </div>
+  </div>
+</div>
+
+<div id="status" aria-live="off">
+  <b>Yön</b>
+  <div class="val"><span id="heading">Kuzey</span> · <span id="bearing">0°</span></div>
+  <div id="place">Kampüs Kapısı</div>
+</div>
+
+<div class="hud" id="bottombar">
+  <div class="help">
+    <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> / <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> yürü</span>
+    <span><kbd>Sürükle</kbd> etrafına bak</span>
+    <span><kbd>Shift</kbd> koş</span>
+    <span><kbd>R</kbd> başa dön</span>
+    <button id="btn-orbit" type="button" aria-pressed="false" title="Yörünge kamerası ile kampüsü dışarıdan izle">Yörünge kamerası</button>
+  </div>
+</div>
+
+<div id="loader">
+  <div class="box">
+    <div class="crest" style="margin:0 auto;width:44px;height:44px;flex:none" aria-hidden="true"></div>
+    <h2>Kampüs yükleniyor…</h2>
+    <p>Görükle Yerleşkesi hazırlanıyor: çam koruları, fakülte, merkez kütüphane ve uzakta Uludağ'ın karlı zirvesi.</p>
+    <div class="bar" aria-hidden="true"><i></i></div>
+  </div>
+</div>
+
+<div id="fallback">
+  <div>
+    <h2>WebGL kullanılamıyor</h2>
+    <p>Bu deneyim donanım hızlandırmalı WebGL gerektiriyor.<br />
+       Tarayıcı ayarlarından donanım hızlandırmayı açıp sayfayı yenileyin.</p>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.169.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* =========================================================================
+   Bursa Uludağ Üniversitesi — Görükle Kampüsü sanal yürüyüşü
+   Tek dosya, build adımı yok, harici asset yok. Build by Opus 5.
+   ========================================================================= */
+
+const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const canvas  = document.getElementById('scene');
+
+/* ---------- Renderer ---------- */
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+} catch (err) {
+  document.getElementById('fallback').classList.add('show');
+  document.getElementById('loader').classList.add('done');
+  throw err;
+}
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight, false);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.02;
+
+/* ---------- Scene, fog, camera ---------- */
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0xcfe4f2, 220, 1500);
+
+const EYE = 1.68;
+const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 6000);
+camera.position.set(0, EYE, 118);
+
+/* ---------- Sky dome (vertical gradient, cheap and fog-friendly) ---------- */
+{
+  const skyGeo = new THREE.SphereGeometry(3000, 32, 20);
+  const skyMat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite: false, fog: false,
+    uniforms: {
+      top:    { value: new THREE.Color(0x2f7fd6) },
+      middle: { value: new THREE.Color(0x9ccdf0) },
+      bottom: { value: new THREE.Color(0xe8f3f7) },
+      sunDir: { value: new THREE.Vector3(-0.42, 0.55, -0.72).normalize() }
+    },
+    vertexShader: `
+      varying vec3 vDir;
+      void main(){
+        vDir = normalize(position);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      uniform vec3 top, middle, bottom, sunDir;
+      varying vec3 vDir;
+      void main(){
+        float h = clamp(vDir.y * 0.5 + 0.5, 0.0, 1.0);
+        vec3 col = mix(bottom, middle, smoothstep(0.42, 0.56, h));
+        col = mix(col, top, smoothstep(0.55, 0.95, h));
+        float sun = pow(max(dot(normalize(vDir), normalize(sunDir)), 0.0), 220.0);
+        float glow = pow(max(dot(normalize(vDir), normalize(sunDir)), 0.0), 6.0) * 0.16;
+        col += vec3(1.0, 0.96, 0.86) * (sun * 0.9 + glow);
+        gl_FragColor = vec4(col, 1.0);
+      }`
+  });
+  scene.add(new THREE.Mesh(skyGeo, skyMat));
+}
+
+/* ---------- Lighting ---------- */
+const hemi = new THREE.HemisphereLight(0xbcdcff, 0x4b6b3c, 1.05);
+scene.add(hemi);
+
+const sun = new THREE.DirectionalLight(0xfff3dd, 2.05);
+sun.position.set(-160, 210, -260);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 20;
+sun.shadow.camera.far = 700;
+sun.shadow.bias = -0.0006;
+sun.shadow.normalBias = 0.6;
+const SHADOW_HALF = 120;
+Object.assign(sun.shadow.camera, { left: -SHADOW_HALF, right: SHADOW_HALF, top: SHADOW_HALF, bottom: -SHADOW_HALF });
+sun.shadow.camera.updateProjectionMatrix();
+scene.add(sun, sun.target);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.18));
+
+/* ---------- Shared materials ---------- */
+const M = {
+  grass:   new THREE.MeshLambertMaterial({ color: 0x5f8f43 }),
+  road:    new THREE.MeshLambertMaterial({ color: 0x4a4a4d }),
+  paint:   new THREE.MeshBasicMaterial({ color: 0xf2f2ee, fog: true, toneMapped: false }),
+  kerb:    new THREE.MeshLambertMaterial({ color: 0xbfbdb6 }),
+  paving:  new THREE.MeshLambertMaterial({ color: 0xc9c6bb }),
+  trunk:   new THREE.MeshLambertMaterial({ color: 0x5a4028 }),
+  pine:    new THREE.MeshLambertMaterial({ color: 0x2f6a34 }),
+  pineDk:  new THREE.MeshLambertMaterial({ color: 0x27562c }),
+  concrete:new THREE.MeshLambertMaterial({ color: 0xe6e3da }),
+  concrete2:new THREE.MeshLambertMaterial({ color: 0xd2cec2 }),
+  glass:   new THREE.MeshPhongMaterial({ color: 0x8fc0d8, shininess: 96, specular: 0x9fd8ff }),
+  glassDk: new THREE.MeshPhongMaterial({ color: 0x35566b, shininess: 110, specular: 0xbfe6ff }),
+  metal:   new THREE.MeshLambertMaterial({ color: 0x9aa0a6 }),
+  metalDk: new THREE.MeshLambertMaterial({ color: 0x53585e }),
+  wood:    new THREE.MeshLambertMaterial({ color: 0x9a6634 }),
+  woodDk:  new THREE.MeshLambertMaterial({ color: 0x7d5029 }),
+  busBody: new THREE.MeshLambertMaterial({ color: 0x1f7a4d }),
+  busTrim: new THREE.MeshLambertMaterial({ color: 0xf3f4ef }),
+  tire:    new THREE.MeshLambertMaterial({ color: 0x1b1c1e }),
+  lampOn:  new THREE.MeshBasicMaterial({ color: 0xfff6d8, toneMapped: false }),
+  brick:   new THREE.MeshLambertMaterial({ color: 0xb4693f }),
+  flowerA: new THREE.MeshLambertMaterial({ color: 0xd94f6a }),
+  flowerB: new THREE.MeshLambertMaterial({ color: 0xf0c04a }),
+  water:   new THREE.MeshPhongMaterial({ color: 0x3f86b5, shininess: 130, specular: 0xcfeaff })
+};
+
+const GROUP = new THREE.Group();
+scene.add(GROUP);
+const add = (m) => { GROUP.add(m); return m; };
+
+/* =========================================================================
+   1) ZEMİN — çimen, kampüs yolu, kaldırım, yürüyüş yolları
+   ========================================================================= */
+const ROAD_HALF = 7.5;          // yol yarı genişliği (toplam 15 m)
+const CAMPUS_Z  = [-260, 150];  // yürünebilir koridor
+
+{
+  // Hafif dalgalı çimen (yoldan uzaklaştıkça yükselir → düz zemin hissi kırılır)
+  const g = new THREE.PlaneGeometry(1600, 1600, 90, 90);
+  g.rotateX(-Math.PI / 2);
+  const p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), z = p.getZ(i);
+    const away = Math.max(0, Math.abs(x) - (ROAD_HALF + 10)) / 60;
+    const h = (Math.sin(x * 0.031) * Math.cos(z * 0.027) * 1.7 + Math.sin(x * 0.011 + z * 0.013) * 2.6);
+    p.setY(i, h * Math.min(1, away) * 0.9);
+  }
+  g.computeVertexNormals();
+  const ground = new THREE.Mesh(g, M.grass);
+  ground.receiveShadow = true;
+  add(ground);
+}
+
+function slab(w, h, d, mat, x, y, z, castShadow = false, receive = true) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.set(x, y, z);
+  m.castShadow = castShadow; m.receiveShadow = receive;
+  return m;
+}
+
+// Asfalt
+add(slab(ROAD_HALF * 2, 0.24, 900, M.road, 0, 0.12, -180));
+// Bordür + kaldırım (iki yan)
+for (const s of [-1, 1]) {
+  add(slab(0.5, 0.42, 900, M.kerb, s * (ROAD_HALF + 0.25), 0.21, -180));
+  add(slab(4.2, 0.34, 900, M.paving, s * (ROAD_HALF + 2.6), 0.17, -180));
+}
+// Orta şerit çizgileri
+{
+  const dash = new THREE.BoxGeometry(0.28, 0.02, 3.4);
+  const dashes = new THREE.InstancedMesh(dash, M.paint, 120);
+  const dm = new THREE.Matrix4();
+  for (let i = 0; i < 120; i++) {
+    dm.makeTranslation(0, 0.25, 200 - i * 7);
+    dashes.setMatrixAt(i, dm);
+  }
+  dashes.instanceMatrix.needsUpdate = true;
+  add(dashes);
+}
+// Meydan / tören alanı (kütüphane önü)
+add(slab(70, 0.2, 56, M.paving, -46, 0.13, -78));
+add(slab(46, 0.2, 34, M.paving, 44, 0.13, -12));
+
+/* =========================================================================
+   2) ULUDAĞ — uzakta karlı zirve silsilesi
+   ========================================================================= */
+function buildUludag() {
+  const W = 3600, D = 1500, SEG = 130;
+  const geo = new THREE.PlaneGeometry(W, D, SEG, SEG);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const rock = new THREE.Color(0x53614f), rockHi = new THREE.Color(0x6e7a68);
+  const snow = new THREE.Color(0xfdfeff), snowSh = new THREE.Color(0xd6e6f4);
+  const c = new THREE.Color();
+
+  // Deterministik değer gürültüsü (seed'li) — her yüklemede aynı dağ
+  const hash = (x, y) => { const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return s - Math.floor(s); };
+  const noise = (x, y) => {
+    const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+    const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf);
+    return THREE.MathUtils.lerp(
+      THREE.MathUtils.lerp(hash(xi, yi), hash(xi + 1, yi), u),
+      THREE.MathUtils.lerp(hash(xi, yi + 1), hash(xi + 1, yi + 1), u), v);
+  };
+  const fbm = (x, y) => {
+    let a = 0.5, f = 1, s = 0;
+    for (let o = 0; o < 5; o++) { s += a * noise(x * f, y * f); f *= 2.03; a *= 0.5; }
+    return s;
+  };
+
+  let maxH = 1;
+  const hs = new Float32Array(pos.count);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i);
+    const nx = x / 300, nz = z / 300;
+    // Ana kütle: kampüsten uzaklaştıkça yükselen sırt
+    const ridge = Math.exp(-Math.pow((x + 260) / 950, 2)) * 1.0 + Math.exp(-Math.pow((x - 620) / 780, 2)) * 0.72;
+    const depth = THREE.MathUtils.smoothstep(-z, 120, 700);
+    const detail = Math.pow(fbm(nx, nz), 1.35);
+    const h = (ridge * 520 + 130) * depth * (0.45 + detail * 0.85);
+    hs[i] = h; if (h > maxH) maxH = h;
+    pos.setY(i, h);
+  }
+  for (let i = 0; i < pos.count; i++) {
+    const t = hs[i] / maxH;
+    const snowLine = THREE.MathUtils.smoothstep(t, 0.46, 0.66);
+    c.copy(rock).lerp(rockHi, THREE.MathUtils.smoothstep(t, 0.1, 0.5));
+    c.lerp(snowSh, snowLine * 0.85).lerp(snow, THREE.MathUtils.smoothstep(t, 0.62, 0.9));
+    colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.computeVertexNormals();
+
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, fog: true }));
+  mesh.position.set(-140, -18, -1250);
+  mesh.renderOrder = -1;
+  return mesh;
+}
+add(buildUludag());
+
+// Ara plan tepeleri (derinlik katmanı, sisle yumuşar)
+{
+  const hillMat = new THREE.MeshLambertMaterial({ color: 0x64815a });
+  for (let i = 0; i < 9; i++) {
+    const r = 90 + (i % 4) * 45;
+    const h = new THREE.Mesh(new THREE.SphereGeometry(r, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2), hillMat);
+    h.position.set(-620 + i * 165 + (i % 3) * 40, -12, -640 - (i % 3) * 90);
+    h.scale.set(1.5, 0.42, 1.1);
+    add(h);
+  }
+}
+
+/* =========================================================================
+   3) ÇAM ORMANI — instanced (gövde + 3 katmanlı taç)
+   ========================================================================= */
+function buildPines() {
+  const rows = [];
+  let rng = 20260906;
+  const rand = () => { rng = (rng * 1664525 + 1013904223) % 4294967296; return rng / 4294967296; };
+
+  // Yol kenarı sıra ağaçlar + arka plan koruları
+  for (let z = 140; z > -420; z -= 7.5) {
+    for (const s of [-1, 1]) {
+      const near = s * (ROAD_HALF + 6.4 + rand() * 1.6);
+      rows.push({ x: near, z: z + (rand() - 0.5) * 2.2, s: 0.9 + rand() * 0.45 });
+    }
+  }
+  for (let i = 0; i < 620; i++) {
+    const side = rand() < 0.5 ? -1 : 1;
+    const x = side * (22 + Math.pow(rand(), 0.75) * 300);
+    const z = -520 + rand() * 720;
+    if (Math.abs(x) < 20) continue;
+    rows.push({ x, z, s: 0.8 + rand() * 0.9 });
+  }
+
+  const N = rows.length;
+  const trunkGeo = new THREE.CylinderGeometry(0.26, 0.42, 3.4, 6);
+  trunkGeo.translate(0, 1.7, 0);
+  const trunks = new THREE.InstancedMesh(trunkGeo, M.trunk, N);
+  const tiers = [
+    { geo: new THREE.ConeGeometry(3.0, 5.2, 8), y: 4.6, mat: M.pineDk },
+    { geo: new THREE.ConeGeometry(2.35, 4.6, 8), y: 7.2, mat: M.pine },
+    { geo: new THREE.ConeGeometry(1.55, 3.8, 8), y: 9.6, mat: M.pine }
+  ].map(t => ({ mesh: new THREE.InstancedMesh(t.geo, t.mat, N), y: t.y }));
+
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3();
+  rows.forEach((r, i) => {
+    const s = r.s;
+    q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rand() * Math.PI * 2);
+    sc.set(s, s * (0.9 + rand() * 0.3), s);
+    v.set(r.x, 0, r.z);
+    trunks.setMatrixAt(i, m.compose(v, q, sc));
+    tiers.forEach(t => {
+      v.set(r.x, t.y * sc.y, r.z);
+      t.mesh.setMatrixAt(i, m.compose(v, q, sc));
+    });
+  });
+  trunks.instanceMatrix.needsUpdate = true;
+  trunks.castShadow = true;
+  const out = [trunks];
+  tiers.forEach(t => { t.mesh.instanceMatrix.needsUpdate = true; t.mesh.castShadow = true; out.push(t.mesh); });
+  return out;
+}
+buildPines().forEach(add);
+
+/* ---------- Çalı / çiçek tarhları ---------- */
+{
+  const bushGeo = new THREE.IcosahedronGeometry(1.1, 0);
+  const bushes = new THREE.InstancedMesh(bushGeo, new THREE.MeshLambertMaterial({ color: 0x4d7b39 }), 260);
+  const m = new THREE.Matrix4(); let r = 7;
+  const rnd = () => { r = (r * 1103515245 + 12345) % 2147483648; return r / 2147483648; };
+  for (let i = 0; i < 260; i++) {
+    const side = rnd() < 0.5 ? -1 : 1;
+    const x = side * (ROAD_HALF + 4.6 + rnd() * 2.2);
+    const z = 140 - rnd() * 520;
+    m.compose(new THREE.Vector3(x, 0.6 + rnd() * 0.3, z),
+              new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * 3.14),
+              new THREE.Vector3(1, 0.75, 1).multiplyScalar(0.7 + rnd() * 0.7));
+    bushes.setMatrixAt(i, m);
+  }
+  bushes.instanceMatrix.needsUpdate = true; bushes.castShadow = true;
+  add(bushes);
+
+  // Renkli çiçek noktaları (meydan kenarı)
+  [[M.flowerA, 0xd94f6a], [M.flowerB, 0xf0c04a]].forEach(([mat], k) => {
+    const f = new THREE.InstancedMesh(new THREE.SphereGeometry(0.28, 6, 5), mat, 130);
+    for (let i = 0; i < 130; i++) {
+      const a = rnd() * Math.PI * 2, rr = 3 + rnd() * 9;
+      m.makeTranslation(-46 + Math.cos(a) * rr * 2.2, 0.5, -78 + Math.sin(a) * rr + (k ? 3 : -3));
+      f.setMatrixAt(i, m);
+    }
+    f.instanceMatrix.needsUpdate = true;
+    add(f);
+  });
+}
+
+/* =========================================================================
+   4) YAPILAR — fakülte binası, merkez kütüphane, kapı, amfi
+   ========================================================================= */
+function windowBand(w, h, d, x, y, z, mat = M.glass) {
+  const m = slab(w, h, d, mat, x, y, z, false, false);
+  return m;
+}
+
+/* --- Modern fakülte binası (sağ taraf) --- */
+function facultyBuilding(px, pz, rotY = 0) {
+  const g = new THREE.Group();
+  g.position.set(px, 0, pz);
+  g.rotation.y = rotY;
+
+  // Ana blok
+  const main = slab(56, 17, 22, M.concrete, 0, 8.5, 0, true);
+  g.add(main);
+  // Kat şeritleri (yatay cam bantlar)
+  for (let f = 0; f < 4; f++) {
+    const y = 3.4 + f * 3.9;
+    g.add(windowBand(56.6, 2.1, 22.6, 0, y, 0, M.glass));
+    g.add(slab(57.0, 0.5, 23.0, M.concrete2, 0, y + 1.5, 0, false, false));
+  }
+  // Yan kanat + çekirdek kule
+  const wing = slab(18, 11, 30, M.concrete2, -30, 5.5, 8, true);
+  g.add(wing);
+  for (let f = 0; f < 3; f++) g.add(windowBand(18.4, 1.8, 30.4, -30, 3.0 + f * 3.6, 8, M.glass));
+
+  const tower = slab(9, 25, 9, M.brick, 26, 12.5, 6, true);
+  g.add(tower);
+  g.add(windowBand(2.4, 22, 9.4, 26, 12.5, 6, M.glassDk));
+
+  // Giriş saçağı + kolonlar
+  g.add(slab(20, 0.7, 7, M.concrete2, 0, 5.2, 14.2, true));
+  for (const x of [-8.4, -2.8, 2.8, 8.4]) {
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 5.2, 12), M.metal);
+    c.position.set(x, 2.6, 17.2); c.castShadow = true; g.add(c);
+  }
+  // Giriş camı + kapı
+  g.add(windowBand(19, 4.6, 0.5, 0, 2.6, 11.1, M.glassDk));
+  g.add(slab(3.2, 3.0, 0.35, M.metalDk, 0, 1.5, 11.0, false, false));
+
+  // Çatı üstü teknik hacim
+  g.add(slab(14, 2.2, 8, M.concrete2, -6, 18.1, -2, true));
+
+  // Bayrak direği
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.16, 14, 8), M.metal);
+  pole.position.set(19, 7, 17); pole.castShadow = true; g.add(pole);
+  const flag = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 2.4), new THREE.MeshLambertMaterial({ color: 0xe03131, side: THREE.DoubleSide }));
+  flag.position.set(20.9, 12.6, 17); g.add(flag);
+  g.userData.flag = flag;
+
+  return g;
+}
+const faculty = facultyBuilding(46, -14, -Math.PI / 2);
+add(faculty);
+
+/* --- Merkez kütüphane (sol taraf, cam atriyum + kavisli çatı) --- */
+function library(px, pz) {
+  const g = new THREE.Group();
+  g.position.set(px, 0, pz);
+
+  // Taban podyum
+  g.add(slab(52, 1.2, 40, M.concrete2, 0, 0.6, 0, true));
+  // Gövde
+  g.add(slab(46, 13, 34, M.concrete, 0, 7.2, 0, true));
+  // Dikey cam yarıklar (ritim)
+  for (let i = -7; i <= 7; i++) {
+    if (i === 0) continue;
+    g.add(windowBand(1.5, 11, 34.5, i * 3.0, 7.2, 0, M.glass));
+  }
+  // Cam atriyum girişi
+  g.add(windowBand(16, 12, 10, 0, 6.6, 20, M.glass));
+  g.add(slab(17.5, 0.6, 11, M.concrete2, 0, 12.9, 20, true));
+  g.add(slab(4.0, 3.2, 0.4, M.metalDk, 0, 1.9, 25.1, false, false));
+
+  // Kavisli çatı (yarım silindir)
+  const roof = new THREE.Mesh(new THREE.CylinderGeometry(18, 18, 34.4, 26, 1, false, 0, Math.PI), M.metal);
+  roof.rotation.set(Math.PI / 2, 0, Math.PI / 2);
+  roof.position.set(0, 13.6, 0);
+  roof.scale.set(1, 1, 0.42);
+  roof.castShadow = true;
+  g.add(roof);
+
+  // Merdiven
+  for (let i = 0; i < 4; i++) g.add(slab(20 - i * 0.6, 0.28, 2.0, M.paving, 0, 0.14 + i * 0.28, 26.5 + i * 1.6));
+
+  // Havuz + su
+  const pool = slab(18, 0.5, 9, M.kerb, 0, 0.35, 34.5);
+  g.add(pool);
+  const water = slab(16.4, 0.2, 7.6, M.water, 0, 0.62, 34.5, false, false);
+  g.add(water);
+  g.userData.water = water;
+
+  return g;
+}
+const lib = library(-46, -86);
+add(lib);
+
+/* --- Kampüs giriş kapısı (başlangıç noktası) --- */
+{
+  const gate = new THREE.Group();
+  gate.position.set(0, 0, 128);
+  for (const s of [-1, 1]) {
+    gate.add(slab(2.4, 7.5, 2.4, M.brick, s * (ROAD_HALF + 3.2), 3.75, 0, true));
+    gate.add(slab(3.2, 0.6, 3.2, M.concrete2, s * (ROAD_HALF + 3.2), 7.8, 0, true));
+  }
+  const beam = slab(2 * (ROAD_HALF + 4.5), 1.5, 1.2, M.concrete, 0, 8.6, 0, true);
+  gate.add(beam);
+  const sign = slab(15, 1.0, 0.25, M.busBody, 0, 8.6, 0.75, false, false);
+  gate.add(sign);
+  add(gate);
+}
+
+/* --- Küçük amfi / oturma terası --- */
+{
+  const amp = new THREE.Group();
+  amp.position.set(-40, 0, 24);
+  for (let i = 0; i < 5; i++) {
+    amp.add(slab(26 - i * 2.4, 0.5, 2.4, M.paving, 0, 0.25 + i * 0.5, -i * 2.4));
+  }
+  add(amp);
+}
+
+/* =========================================================================
+   5) MOBİLYA — sokak lambaları, banklar, çöp kutuları, otobüs durağı
+   ========================================================================= */
+const lampGlobes = [];
+function streetLamp(x, z, mirror = 1) {
+  const g = new THREE.Group();
+  g.position.set(x, 0, z);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.55, 0.7, 10), M.metalDk);
+  base.position.y = 0.5; base.castShadow = true; g.add(base);
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.22, 7.6, 10), M.metal);
+  pole.position.y = 4.2; pole.castShadow = true; g.add(pole);
+  const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 2.6, 8), M.metal);
+  arm.rotation.z = Math.PI / 2 - 0.28 * mirror;
+  arm.position.set(mirror * 1.1, 7.8, 0); arm.castShadow = true; g.add(arm);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.34, 0.8), M.metalDk);
+  head.position.set(mirror * 2.2, 8.05, 0); head.castShadow = true; g.add(head);
+  const globe = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.16, 0.6), M.lampOn);
+  globe.position.set(mirror * 2.2, 7.86, 0); g.add(globe);
+  lampGlobes.push(globe);
+  return g;
+}
+for (let z = 116; z > -400; z -= 26) {
+  add(streetLamp(-(ROAD_HALF + 1.2), z, -1));
+  add(streetLamp(ROAD_HALF + 1.2, z - 13, 1));
+}
+
+function bench(x, z, rotY) {
+  const g = new THREE.Group();
+  g.position.set(x, 0, z); g.rotation.y = rotY;
+  for (const s of [-1, 1]) {
+    g.add(slab(0.16, 0.45, 1.5, M.metalDk, s * 0.85, 0.24, 0, true));
+    g.add(slab(0.16, 0.9, 0.16, M.metalDk, s * 0.85, 0.7, -0.6, true));
+  }
+  for (let i = 0; i < 4; i++) g.add(slab(2.2, 0.10, 0.28, M.wood, 0, 0.5, -0.55 + i * 0.34, true));
+  for (let i = 0; i < 3; i++) g.add(slab(2.2, 0.28, 0.10, M.woodDk, 0, 0.78 + i * 0.3, -0.66, true));
+  return g;
+}
+for (let z = 104; z > -380; z -= 34) {
+  add(bench(-(ROAD_HALF + 3.4), z, Math.PI / 2));
+  add(bench(ROAD_HALF + 3.4, z - 17, -Math.PI / 2));
+  const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.34, 1.0, 10), M.metalDk);
+  bin.position.set(-(ROAD_HALF + 4.6), 0.5, z - 3); bin.castShadow = true; add(bin);
+}
+
+/* --- Ring durağı --- */
+function busStop(x, z, rotY) {
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = rotY;
+  for (const s of [-1, 1]) {
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 2.9, 8), M.metal);
+    c.position.set(s * 2.6, 1.45, -1.1); c.castShadow = true; g.add(c);
+    const c2 = c.clone(); c2.position.z = 1.1; g.add(c2);
+  }
+  g.add(slab(6.0, 0.16, 3.0, M.metalDk, 0, 3.0, 0, true));
+  g.add(windowBand(6.0, 2.4, 0.12, 0, 1.7, -1.15, M.glass));
+  g.add(bench(0, 0.4, 0));
+  const sign = slab(1.5, 0.9, 0.12, M.busBody, 3.1, 2.4, 0, false, false);
+  g.add(sign);
+  return g;
+}
+add(busStop(ROAD_HALF + 4.0, 42, -Math.PI / 2));
+add(busStop(-(ROAD_HALF + 4.0), -140, Math.PI / 2));
+
+/* --- Yön tabelası --- */
+{
+  const g = new THREE.Group(); g.position.set(-(ROAD_HALF + 3.0), 0, 96);
+  const p = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 3.2, 8), M.metal);
+  p.position.y = 1.6; p.castShadow = true; g.add(p);
+  g.add(slab(3.2, 0.5, 0.1, M.busBody, -1.5, 2.6, 0, true, false));
+  g.add(slab(2.8, 0.5, 0.1, M.busBody, 1.3, 1.95, 0, true, false));
+  add(g);
+}
+
+/* =========================================================================
+   6) RİNG OTOBÜSÜ — yol boyunca ileri geri sefer
+   ========================================================================= */
+function shuttleBus() {
+  const g = new THREE.Group();
+  const body = slab(2.6, 2.5, 10.5, M.busBody, 0, 1.85, 0, true, false);
+  g.add(body);
+  g.add(slab(2.64, 0.5, 10.54, M.busTrim, 0, 2.95, 0, false, false)); // üst şerit
+  g.add(slab(2.66, 1.15, 10.2, M.glassDk, 0, 2.35, 0, false, false));  // yan camlar
+  g.add(slab(2.3, 1.4, 0.2, M.glassDk, 0, 2.4, 5.28, false, false));   // ön cam
+  g.add(slab(2.3, 1.2, 0.2, M.glassDk, 0, 2.35, -5.28, false, false)); // arka cam
+  g.add(slab(2.7, 0.35, 10.6, M.metalDk, 0, 0.72, 0, false, false));   // etek
+  // Çatı klima
+  g.add(slab(1.6, 0.35, 2.6, M.busTrim, 0, 3.28, -2.0, true, false));
+  // Farlar
+  for (const s of [-1, 1]) {
+    g.add(slab(0.5, 0.28, 0.12, M.lampOn, s * 0.85, 1.25, 5.3, false, false));
+    const tail = slab(0.4, 0.24, 0.12, new THREE.MeshBasicMaterial({ color: 0xd23b3b, toneMapped: false }), s * 0.9, 1.3, -5.3, false, false);
+    g.add(tail);
+  }
+  // Tekerlekler
+  const wheelGeo = new THREE.CylinderGeometry(0.62, 0.62, 0.42, 14);
+  wheelGeo.rotateZ(Math.PI / 2);
+  const wheels = [];
+  for (const z of [3.4, -3.0, -4.1]) for (const s of [-1, 1]) {
+    const w = new THREE.Mesh(wheelGeo, M.tire);
+    w.position.set(s * 1.32, 0.62, z); w.castShadow = true;
+    g.add(w); wheels.push(w);
+  }
+  g.userData.wheels = wheels;
+  // Ön yazı paneli
+  g.add(slab(1.9, 0.32, 0.08, M.busTrim, 0, 3.05, 5.32, false, false));
+  return g;
+}
+const bus = shuttleBus();
+add(bus);
+
+const busState = { t: 0, dir: -1, z: 60, speed: 9.5 };
+
+/* =========================================================================
+   7) KUŞLAR / atmosfer (hafif hareket)
+   ========================================================================= */
+const birds = new THREE.Group();
+{
+  const bg = new THREE.BufferGeometry();
+  bg.setAttribute('position', new THREE.Float32BufferAttribute([-1.2, 0, 0, 0, 0.45, 0, 1.2, 0, 0], 3));
+  const bm = new THREE.LineBasicMaterial({ color: 0x24333f, transparent: true, opacity: 0.55 });
+  for (let i = 0; i < 14; i++) {
+    const b = new THREE.Line(bg, bm);
+    b.position.set(-160 + Math.random() * 320, 55 + Math.random() * 40, -260 - Math.random() * 420);
+    b.userData.sp = 4 + Math.random() * 5;
+    birds.add(b);
+  }
+}
+scene.add(birds);
+
+/* =========================================================================
+   8) KONTROLLER — birinci şahıs yürüyüş + sürükle bak + OrbitControls modu
+   ========================================================================= */
+const keys = Object.create(null);
+let yaw = Math.PI, pitch = -0.03;     // başlangıçta kampüsün içine bakar
+const START = { x: 0, z: 118, yaw: Math.PI, pitch: -0.03 };
+
+const orbit = new OrbitControls(camera, renderer.domElement);
+orbit.enableDamping = true;
+orbit.dampingFactor = 0.06;
+orbit.maxPolarAngle = Math.PI * 0.495;
+orbit.minDistance = 12;
+orbit.maxDistance = 420;
+orbit.target.set(0, 6, -40);
+orbit.enabled = false;
+
+let orbitMode = false;
+const btnOrbit = document.getElementById('btn-orbit');
+function setOrbit(on) {
+  orbitMode = on;
+  btnOrbit.setAttribute('aria-pressed', String(on));
+  orbit.enabled = on;
+  if (on) {
+    camera.position.set(96, 62, 150);
+    orbit.target.set(-6, 6, -50);
+    orbit.update();
+  } else {
+    camera.position.set(walker.x, EYE, walker.z);
+    applyLook();
+  }
+}
+btnOrbit.addEventListener('click', () => setOrbit(!orbitMode));
+
+const walker = { x: START.x, z: START.z, vx: 0, vz: 0 };
+
+function applyLook() {
+  pitch = THREE.MathUtils.clamp(pitch, -1.05, 0.95);
+  camera.rotation.set(0, 0, 0);
+  camera.rotation.order = 'YXZ';
+  camera.rotation.y = yaw;
+  camera.rotation.x = pitch;
+}
+applyLook();
+
+/* --- Fare / dokunmatik sürükleme --- */
+let dragging = false, lastX = 0, lastY = 0;
+canvas.addEventListener('pointerdown', (e) => {
+  canvas.focus();
+  if (orbitMode) return;
+  dragging = true; lastX = e.clientX; lastY = e.clientY;
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!dragging || orbitMode) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  yaw   -= dx * 0.0032;
+  pitch -= dy * 0.0028;
+  applyLook();
+});
+const endDrag = (e) => {
+  dragging = false;
+  if (e && e.pointerId !== undefined && canvas.hasPointerCapture?.(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+};
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', endDrag);
+canvas.addEventListener('pointerleave', endDrag);
+
+/* --- Klavye --- */
+const MOVE_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space']);
+addEventListener('keydown', (e) => {
+  keys[e.code] = true;
+  if (MOVE_KEYS.has(e.code)) e.preventDefault();
+  if (e.code === 'KeyR') reset();
+  if (e.code === 'KeyO') setOrbit(!orbitMode);
+}, { passive: false });
+addEventListener('keyup', (e) => { keys[e.code] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; dragging = false; });
+
+function reset() {
+  walker.x = START.x; walker.z = START.z; walker.vx = walker.vz = 0;
+  yaw = START.yaw; pitch = START.pitch;
+  if (orbitMode) setOrbit(false); else applyLook();
+}
+
+/* --- Basit çarpışma: bina kutuları --- */
+const BLOCKERS = [
+  { x: 46,   z: -14,   w: 30, d: 60 },   // fakülte ana blok (rotY=-90° → kaba AABB)
+  { x: 38,   z: -44,   w: 32, d: 20 },   // fakülte yan kanadı
+  { x: 40,   z: 12,    w: 12, d: 12 },   // tuğla çekirdek kule
+  { x: -46,  z: -86,   w: 54, d: 44 },   // kütüphane gövdesi + podyum
+  { x: -46,  z: -66,   w: 18, d: 12 },   // cam atriyum girişi
+  { x: -46,  z: -51.5, w: 20, d: 11 },   // havuz
+  { x: 10.7, z: 128,   w: 5,  d: 5 },    // kampüs kapısı ayakları
+  { x: -10.7,z: 128,   w: 5,  d: 5 }
+];
+function blocked(x, z) {
+  for (const b of BLOCKERS) {
+    if (Math.abs(x - b.x) < b.w / 2 + 0.9 && Math.abs(z - b.z) < b.d / 2 + 0.9) return true;
+  }
+  return false;
+}
+
+/* =========================================================================
+   9) HUD — pusula ve konum adı
+   ========================================================================= */
+const elHeading = document.getElementById('heading');
+const elBearing = document.getElementById('bearing');
+const elPlace   = document.getElementById('place');
+const DIRS = ['Kuzey', 'Kuzeydoğu', 'Doğu', 'Güneydoğu', 'Güney', 'Güneybatı', 'Batı', 'Kuzeybatı'];
+const PLACES = [
+  { z: 110,  name: 'Kampüs Kapısı' },
+  { z: 30,   name: 'Ring Durağı' },
+  { z: -46,  name: 'Fakülte Binası' },
+  { z: -112, name: 'Merkez Kütüphane' },
+  { z: -200, name: 'Çam Korusu' },
+  { z: -999, name: 'Uludağ Manzarası' }
+];
+let hudTimer = 0;
+function updateHUD() {
+  const deg = (THREE.MathUtils.radToDeg(-yaw) % 360 + 360) % 360;
+  elBearing.textContent = Math.round(deg) + '°';
+  elHeading.textContent = DIRS[Math.round(deg / 45) % 8];
+  const p = PLACES.find(p => walker.z >= p.z) || PLACES[PLACES.length - 1];
+  if (elPlace.textContent !== p.name) elPlace.textContent = p.name;
+}
+
+/* =========================================================================
+   10) ANİMASYON DÖNGÜSÜ
+   ========================================================================= */
+const clock = new THREE.Clock();
+let running = true;
+document.addEventListener('visibilitychange', () => {
+  running = !document.hidden;
+  if (running) { clock.getDelta(); requestAnimationFrame(tick); }
+});
+
+const WALK = 7.2, RUN = 14.0, ACCEL = 12, FRICTION = 9;
+const fwd = new THREE.Vector3(), right = new THREE.Vector3();
+
+function tick() {
+  if (!running) return;
+  requestAnimationFrame(tick);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const t  = clock.elapsedTime;
+
+  /* --- yürüyüş --- */
+  if (!orbitMode) {
+    const f = (keys['KeyW'] || keys['ArrowUp'] ? 1 : 0) - (keys['KeyS'] || keys['ArrowDown'] ? 1 : 0);
+    const s = (keys['KeyD'] || keys['ArrowRight'] ? 1 : 0) - (keys['KeyA'] || keys['ArrowLeft'] ? 1 : 0);
+    const speed = (keys['ShiftLeft'] || keys['ShiftRight']) ? RUN : WALK;
+
+    fwd.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+    right.set(Math.cos(yaw), 0, -Math.sin(yaw));
+
+    let ax = (fwd.x * f + right.x * s), az = (fwd.z * f + right.z * s);
+    const len = Math.hypot(ax, az);
+    if (len > 0.0001) { ax /= len; az /= len; }
+
+    walker.vx += ax * speed * ACCEL * dt;
+    walker.vz += az * speed * ACCEL * dt;
+    const damp = Math.max(0, 1 - FRICTION * dt);
+    walker.vx *= damp; walker.vz *= damp;
+    const vlen = Math.hypot(walker.vx, walker.vz);
+    if (vlen > speed) { walker.vx = walker.vx / vlen * speed; walker.vz = walker.vz / vlen * speed; }
+
+    const nx = walker.x + walker.vx * dt;
+    const nz = walker.z + walker.vz * dt;
+    if (!blocked(nx, walker.z)) walker.x = nx; else walker.vx = 0;
+    if (!blocked(walker.x, nz)) walker.z = nz; else walker.vz = 0;
+    walker.x = THREE.MathUtils.clamp(walker.x, -150, 150);
+    walker.z = THREE.MathUtils.clamp(walker.z, CAMPUS_Z[0], CAMPUS_Z[1]);
+
+    // Yürüyüş başı sallanması (reduced-motion'da kapalı)
+    const bob = REDUCED ? 0 : Math.sin(t * 9.0) * Math.min(vlen / WALK, 1) * 0.055;
+    camera.position.set(walker.x, EYE + bob, walker.z);
+    applyLook();
+  } else {
+    orbit.update();
+  }
+
+  /* --- gölge kamerasını kameraya taşı (uzak sahnede keskin gölge) --- */
+  sun.target.position.set(camera.position.x, 0, camera.position.z);
+  sun.position.set(camera.position.x - 160, 210, camera.position.z - 260);
+  sun.target.updateMatrixWorld();
+
+  /* --- ring otobüsü --- */
+  if (!REDUCED) {
+    busState.z += busState.dir * busState.speed * dt;
+    if (busState.z < -230) { busState.z = -230; busState.dir = 1; }
+    if (busState.z > 116)  { busState.z = 116;  busState.dir = -1; }
+    bus.position.set(busState.dir < 0 ? -3.6 : 3.6, 0, busState.z);
+    bus.rotation.y = busState.dir < 0 ? 0 : Math.PI;
+    bus.userData.wheels.forEach(w => { w.rotation.x -= busState.speed * dt * 1.6; });
+  } else {
+    bus.position.set(-3.6, 0, 30);
+  }
+
+  /* --- küçük hayat detayları --- */
+  if (!REDUCED) {
+    birds.children.forEach(b => {
+      b.position.x += b.userData.sp * dt;
+      if (b.position.x > 220) b.position.x = -220;
+      b.rotation.z = Math.sin(t * 6 + b.position.z) * 0.25;
+    });
+    if (faculty.userData.flag) faculty.userData.flag.rotation.y = Math.sin(t * 1.6) * 0.22;
+    if (lib.userData.water) lib.userData.water.position.y = 0.62 + Math.sin(t * 1.5) * 0.02;
+  }
+
+  hudTimer += dt;
+  if (hudTimer > 0.12) { hudTimer = 0; updateHUD(); }
+
+  renderer.render(scene, camera);
+}
+
+/* =========================================================================
+   11) Boyutlandırma, bağlam kaybı, açılış
+   ========================================================================= */
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setSize(innerWidth, innerHeight, false);
+});
+
+canvas.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault(); running = false;
+  document.getElementById('fallback').classList.add('show');
+});
+canvas.addEventListener('webglcontextrestored', () => {
+  document.getElementById('fallback').classList.remove('show');
+  running = true; clock.getDelta(); requestAnimationFrame(tick);
+});
+
+// İlk kareyi derle, sonra loader'ı kaldır
+renderer.compile(scene, camera);
+renderer.render(scene, camera);
+updateHUD();
+requestAnimationFrame(() => {
+  document.getElementById('loader').classList.add('done');
+  canvas.focus({ preventScroll: true });
+});
+if (REDUCED) setOrbit(true);
+requestAnimationFrame(tick);
+
+console.info('Bursa Uludağ Üniversitesi Kampüs Turu — Build by Opus 5.');
+</script>
+</body>
+</html>
