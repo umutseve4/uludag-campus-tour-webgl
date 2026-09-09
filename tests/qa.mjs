@@ -253,7 +253,7 @@ ok(worstStep < 0.9, `observed max per-frame step ${worstStep.toFixed(3)} m < ${M
 
   // Oyunun hareket entegratörünün birebir kopyası; yön birim vektör olarak verilir.
   // hitOwn: reddedilen aday adımın HEDEF gövdenin genişletilmiş kutusuna girdiğini,
-  // yani yüzü gerçekten çaprazladığını kanıtlar (duvara varıp durmak yetmez).
+  // yani yüzü gerçekten çapraztığını kanıtlar (duvara varıp durmak yetmez).
   const drive = (sx, sz, ux, uz, fast, target) => {
     let x = sx, z = sz, vx = fast * ux * RUN, vz = fast * uz * RUN;
     let hit = -1, worst = 0, breach = false, hitOwn = false, deepest = 0;
@@ -290,7 +290,7 @@ ok(worstStep < 0.9, `observed max per-frame step ${worstStep.toFixed(3)} m < ${M
     const B = BOX[i];
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       // Normal ekseni a, yanal eksen l. Yüz düzlemi f; yanal açıklık (lo, hi) —
-      // baş-baş gelen bir koşunun bu gövdeye çarptığı yanal konumların TAM kümesi.
+      // baş-başa gelen bir koşunun bu gövdeye çarptığı yanal konumların TAM kümesi.
       const f = dx ? (dx > 0 ? B.x1 : B.x0) : (dz > 0 ? B.z1 : B.z0);
       const s = dx || dz;
       const lo = dx ? B.z0 : B.x0, hi = dx ? B.z1 : B.x1;
@@ -404,12 +404,12 @@ for (const z of [140, 118, 60, 0, -40, -90, -160, -259]) {
 /* ---------- 7. README iddiaları dosyayla uyuşuyor mu ---------- */
 {
   const realBytes = statSync(htmlUrl).size;
-  const m = readme.match(/\((\d[\d.]*)\s*bayt\)/);
-  const claimed = m ? parseInt(m[1].replace(/\./g, ''), 10) : NaN;
+  const m = readme.match(/\((\d[\d.,]*)\s*bytes\)/);
+  const claimed = m ? parseInt(m[1].replace(/[.,]/g, ''), 10) : NaN;
   ok(claimed === realBytes, `README byte claim matches the file (claimed ${claimed}, actual ${realBytes})`);
 }
 {
-  const m = readme.match(/\*\*(\d+)\s*kontrol/);
+  const m = readme.match(/\*\*(\d+)\s*checks/);
   const declared = m ? parseInt(m[1], 10) : NaN;
   // Bu satırın kendisi de bir kontrol: checks henüz artmadı, bu yüzden +1.
   ok(declared === checks + 1, `README check count matches the harness (declared ${declared}, actual ${checks + 1})`);
