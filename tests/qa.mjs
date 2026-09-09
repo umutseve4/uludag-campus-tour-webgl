@@ -404,12 +404,12 @@ for (const z of [140, 118, 60, 0, -40, -90, -160, -259]) {
 /* ---------- 7. README iddiaları dosyayla uyuşuyor mu ---------- */
 {
   const realBytes = statSync(htmlUrl).size;
-  const m = readme.match(/\((\d[\d.]*)\s*bayt\)/);
-  const claimed = m ? parseInt(m[1].replace(/\./g, ''), 10) : NaN;
+  const m = readme.match(/\((\d[\d.,]*)\s*bytes\)/);
+  const claimed = m ? parseInt(m[1].replace(/[.,]/g, ''), 10) : NaN;
   ok(claimed === realBytes, `README byte claim matches the file (claimed ${claimed}, actual ${realBytes})`);
 }
 {
-  const m = readme.match(/\*\*(\d+)\s*kontrol/);
+  const m = readme.match(/\*\*(\d+)\s*checks/);
   const declared = m ? parseInt(m[1], 10) : NaN;
   // Bu satırın kendisi de bir kontrol: checks henüz artmadı, bu yüzden +1.
   ok(declared === checks + 1, `README check count matches the harness (declared ${declared}, actual ${checks + 1})`);
